@@ -187,8 +187,7 @@ export async function retrieve(
       `SELECT id, content,
               -(content <@> to_bm25query($1, 'memory_content_bm25_idx')) as score
        FROM memory
-       WHERE content <@> to_bm25query($1, 'memory_content_bm25_idx') < 0
-       ORDER BY score DESC, created_at DESC
+       ORDER BY content <@> to_bm25query($1, 'memory_content_bm25_idx')
        LIMIT $2`,
       [question, CANDIDATE_LIMIT],
     ),

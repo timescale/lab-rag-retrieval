@@ -54,6 +54,8 @@ server.tool(
     order_by: z.enum(["asc", "desc"]).nullable().describe("Sort direction for filter-only searches. Default: desc"),
   },
   async (params) => {
+    const t0 = performance.now();
+    const timings: Record<string, number> = {};
     const candidateLimit = params.candidateLimit || 30;
     const limit = params.limit || 10;
     const wSemantic = params.weights?.semantic ?? 1.0;
@@ -118,19 +120,24 @@ server.tool(
       const semanticResults: Array<{ id: string }> = [];
 
       if (hasFulltext) {
+        const tBm25 = performance.now();
         const bm25 = await sql.unsafe<Array<{ id: string }>>(
           `SELECT id FROM memory
-           WHERE content <@> to_bm25query($1, 'memory_content_bm25_idx') < 0${filterClause}
-           ORDER BY -(content <@> to_bm25query($1, 'memory_content_bm25_idx')) DESC, created_at DESC
-           LIMIT $2`,
-          [params.fulltext, candidateLimit, ...filterValues] as any[],
+           ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
+           ORDER BY content <@> to_bm25query($${paramIdx}, 'memory_content_bm25_idx')
+           LIMIT $${paramIdx + 1}`,
+          [...filterValues, params.fulltext, candidateLimit] as any[],
         );
+        timings.bm25_ms = Math.round(performance.now() - tBm25);
         bm25Results.push(...bm25);
       }
 
       if (hasSemantic) {
+        const tEmbed = performance.now();
         const [queryEmbedding] = await embed([params.semantic!]);
+        timings.embed_ms = Math.round(performance.now() - tEmbed);
         const vec = `[${queryEmbedding!.join(",")}]`;
+        const tSem = performance.now();
         const sem = await sql.unsafe<Array<{ id: string }>>(
           `SELECT id FROM memory
            WHERE embedding IS NOT NULL
@@ -139,6 +146,7 @@ server.tool(
            LIMIT $2`,
           [vec, candidateLimit, ...filterValues] as any[],
         );
+        timings.semantic_ms = Math.round(performance.now() - tSem);
         semanticResults.push(...sem);
       }
 
@@ -190,10 +198,13 @@ server.tool(
       return `${i + 1}. ${datePrefix}${r.content} (id: ${r.id})`;
     });
 
+    timings.total_ms = Math.round(performance.now() - t0);
+    const timingStr = Object.entries(timings).map(([k, v]) => `${k}=${v}`).join(" ");
+
     return {
       content: [{
         type: "text" as const,
-        text: lines.length > 0 ? lines.join("\n") : "No results found.",
+        text: (lines.length > 0 ? lines.join("\n") : "No results found.") + `\n[timing: ${timingStr}]`,
       }],
     };
   },

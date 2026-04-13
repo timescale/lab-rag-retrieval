@@ -57,7 +57,7 @@ interface ClaudeResult {
 
 async function askClaudeOnce(prompt: string, useMcp: boolean): Promise<ClaudeResult> {
   const JSON_SCHEMA = '{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}';
-  const args = ["claude", "-p", prompt, "--output-format", "json", "--verbose", "--model", "sonnet", "--json-schema", JSON_SCHEMA];
+  const args = ["claude", "-p", prompt, "--output-format", "json", "--verbose", "--model", "haiku", "--json-schema", JSON_SCHEMA];
   if (useMcp) {
     args.push("--mcp-config", MCP_CONFIG, "--strict-mcp-config", "--tools", MCP_TOOLS, "--allowedTools", MCP_TOOLS);
   }
@@ -171,7 +171,7 @@ async function main() {
 
   // Answer all questions
   const allResults: QAResult[] = new Array(questions.length);
-  const CONCURRENCY = EVAL_MODE === "tool" ? 10 : 50;
+  const CONCURRENCY = EVAL_MODE === "tool" ? 4 : 50;
 
   console.log(`Answering ${questions.length} questions...`);
   let t0 = performance.now();

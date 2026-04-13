@@ -5,6 +5,7 @@
   "scripts": {
     "setup": "bun src/prepare.ts",
     "ingest": "bun src/ingest.ts",
+    "ingest:quick": "bun src/ingest.ts --quick",
     "eval": "bun src/evaluate.ts",
     "eval:quick": "bun src/evaluate.ts --samples 20"
   },
