@@ -1,0 +1,9 @@
+node_modules/
+bun.lock
+.env
+.venv/
+data/musique/
+data/musique.zip
+data/corpus.jsonl
+data/dev.jsonl
+results/eval-*.json
