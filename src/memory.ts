@@ -8,6 +8,7 @@
 // Everything here (embedding, helpers, constants) is fair game.
 // =============================================================================
 
+import { embedWithCache } from "./embed-cache.ts";
 import type { Sql, CorpusDoc } from "./types.ts";
 
 // -- Config ------------------------------------------------------------------
@@ -25,30 +26,21 @@ export async function embed(texts: string[]): Promise<number[][]> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY required");
 
-  const allEmbeddings: number[][] = [];
-
-  for (let i = 0; i < texts.length; i += EMBEDDING_BATCH_SIZE) {
-    const batch = texts.slice(i, i + EMBEDDING_BATCH_SIZE);
-    const res = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model: EMBEDDING_MODEL, input: batch }),
-    });
-    if (!res.ok) {
-      throw new Error(`Embedding API error: ${res.status} ${await res.text()}`);
-    }
-    const data = (await res.json()) as {
-      data: Array<{ embedding: number[] }>;
-    };
-    for (const item of data.data) {
-      allEmbeddings.push(item.embedding);
-    }
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ model: EMBEDDING_MODEL, input: texts }),
+  });
+  if (!res.ok) {
+    throw new Error(`Embedding API error: ${res.status} ${await res.text()}`);
   }
-
-  return allEmbeddings;
+  const data = (await res.json()) as {
+    data: Array<{ embedding: number[] }>;
+  };
+  return data.data.map((item) => item.embedding);
 }
 
 // -- Ingestion ---------------------------------------------------------------
@@ -83,37 +75,69 @@ export async function ingest(
 
   if (rows.length === 0) return;
 
-  // Batch embed
+  // Batch embed (with file-based cache)
   const contents = rows.map((r) => r.content);
   console.log(`  Embedding ${contents.length} paragraphs...`);
-  const embeddings = await embed(contents);
+  const embeddings = await embedWithCache(contents, embed, EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL);
 
-  // Batch insert
-  console.log(`  Inserting ${rows.length} memories...`);
-  const BATCH = 100;
-  for (let b = 0; b < rows.length; b += BATCH) {
-    const end = Math.min(b + BATCH, rows.length);
-    await sql.begin(async (tx) => {
-      for (let i = b; i < end; i++) {
-        const row = rows[i]!;
-        const vec = `[${embeddings[i]!.join(",")}]`;
-        await tx`
-          INSERT INTO memory (id, content, meta, tree, embedding)
-          VALUES (
-            ${row.id}::uuid,
-            ${row.content},
-            ${sql.json(row.meta as any)},
-            ${row.tree}::ltree,
-            ${vec}::halfvec
-          )
-          ON CONFLICT (id) DO NOTHING
-        `;
-      }
-    });
-    if ((b + BATCH) % 5000 < BATCH) {
-      process.stdout.write(`  Progress: ${Math.min(b + BATCH, rows.length)}/${rows.length}\n`);
+  // Drop indexes for fast bulk insert
+  console.log(`  Dropping indexes for bulk insert...`);
+  await sql.unsafe(`DROP INDEX IF EXISTS memory_embedding_hnsw_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS memory_content_bm25_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS memory_meta_gin_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS memory_tree_gist_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS memory_temporal_gist_idx`);
+
+  // COPY for fast bulk insert
+  console.log(`  Inserting ${rows.length} memories via COPY...`);
+  const writable = await sql`COPY memory (id, content, meta, tree, embedding) FROM STDIN`.writable();
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    const vec = `[${embeddings[i]!.join(",")}]`;
+    const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
+    const line = `${row.id}\t${esc(row.content)}\t${esc(JSON.stringify(row.meta))}\t${row.tree}\t${vec}\n`;
+    if (!writable.write(line)) {
+      await new Promise<void>((resolve) => writable.once("drain", resolve));
+    }
+    if ((i + 1) % 10000 === 0) {
+      process.stdout.write(`  Progress: ${i + 1}/${rows.length}\n`);
     }
   }
+
+  await new Promise<void>((resolve, reject) => {
+    writable.end(() => resolve());
+    writable.on("error", reject);
+  });
+  process.stdout.write(`  Progress: ${rows.length}/${rows.length}\n`);
+
+  // Recreate indexes
+  console.log(`  Recreating indexes...`);
+  console.log(`    HNSW (embedding)...`);
+  await sql.unsafe(`
+    CREATE INDEX memory_embedding_hnsw_idx
+      ON memory USING hnsw (embedding halfvec_cosine_ops)
+      WITH (m = 16, ef_construction = 64)
+  `);
+  console.log(`    BM25 (content)...`);
+  await sql.unsafe(`
+    CREATE INDEX memory_content_bm25_idx
+      ON memory USING bm25 (content)
+      WITH (text_config = 'english', k1 = 1.2, b = 0.75)
+  `);
+  console.log(`    GIN (meta)...`);
+  await sql.unsafe(
+    `CREATE INDEX memory_meta_gin_idx ON memory USING gin (meta)`,
+  );
+  console.log(`    GIST (tree)...`);
+  await sql.unsafe(
+    `CREATE INDEX memory_tree_gist_idx ON memory USING gist (tree)`,
+  );
+  console.log(`    GIST (temporal)...`);
+  await sql.unsafe(
+    `CREATE INDEX memory_temporal_gist_idx ON memory USING gist (temporal) WHERE temporal IS NOT NULL`,
+  );
+  console.log(`  Indexes rebuilt.`);
 }
 
 // -- RRF Fusion --------------------------------------------------------------

@@ -200,27 +200,6 @@ async function setupDatabase(): Promise<void> {
     END $$
   `);
 
-  console.log("Creating indexes...");
-  await sql.unsafe(`
-    CREATE INDEX IF NOT EXISTS memory_embedding_hnsw_idx
-      ON memory USING hnsw (embedding halfvec_cosine_ops)
-      WITH (m = 16, ef_construction = 64)
-  `);
-  await sql.unsafe(`
-    CREATE INDEX IF NOT EXISTS memory_content_bm25_idx
-      ON memory USING bm25 (content)
-      WITH (text_config = 'english', k1 = 1.2, b = 0.75)
-  `);
-  await sql.unsafe(
-    "CREATE INDEX IF NOT EXISTS memory_meta_gin_idx ON memory USING gin (meta)",
-  );
-  await sql.unsafe(
-    "CREATE INDEX IF NOT EXISTS memory_tree_gist_idx ON memory USING gist (tree)",
-  );
-  await sql.unsafe(
-    "CREATE INDEX IF NOT EXISTS memory_temporal_gist_idx ON memory USING gist (temporal) WHERE temporal IS NOT NULL",
-  );
-
   const [row] = await sql`SELECT count(*)::int as count FROM memory`;
   console.log(`\nDone. Memory table has ${row!.count} rows.`);
 
