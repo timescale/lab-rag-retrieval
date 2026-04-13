@@ -190,6 +190,8 @@ async function main() {
           let prediction: string;
           let context: string;
 
+          let numToolCalls = 0;
+          let toolCalls: Array<{ tool: string; args: Record<string, unknown> }> = [];
           if (EVAL_MODE === "context") {
             context = await retrieve(q.question, sql);
             const prompt = buildPrompt(q.question, context);
@@ -199,6 +201,8 @@ async function main() {
             const prompt = buildPrompt(q.question, "");
             const result = await askClaude(prompt, true);
             prediction = result.answer;
+            toolCalls = result.toolCalls;
+            numToolCalls = toolCalls.length;
             context = "(tool mode)";
           }
 
@@ -212,6 +216,8 @@ async function main() {
             f1: 0,
             em: 0,
             context,
+            numToolCalls,
+            toolCalls,
           };
 
           completed++;
@@ -255,8 +261,9 @@ async function main() {
       `  ${hops}-hop: F1=${stats.f1.toFixed(3)} EM=${stats.em.toFixed(3)} (n=${stats.count})`,
     );
   }
+  const avgToolCalls = mean(allResults.map((r) => r.numToolCalls));
   console.log(
-    `\nOverall: F1=${overallF1.toFixed(3)} EM=${overallEM.toFixed(3)} (${allResults.length} questions)\n`,
+    `\nOverall: F1=${overallF1.toFixed(3)} EM=${overallEM.toFixed(3)} (${allResults.length} questions, avg ${avgToolCalls.toFixed(1)} tool calls)\n`,
   );
 
   // Build eval run
