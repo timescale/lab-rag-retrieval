@@ -2,3 +2,6 @@
 {"timestamp":"2026-04-13T16:26:00.262Z","f1":0.5919,"em":0.45,"questions":20,"mode":"tool","description":"test tool call tracking","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-13T16:37:15.347Z","f1":0.6336,"em":0.5,"questions":20,"mode":"tool","description":"baseline check 2","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-13T17:53:44.152Z","f1":0.6836,"em":0.55,"questions":20,"mode":"tool","description":"baseline check 3","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-13T20:03:44.700Z","f1":0.6716,"em":0.57,"questions":100,"mode":"tool","description":"baseline 100q","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-13T20:05:47.822Z","f1":0.6757,"em":0.59,"questions":100,"mode":"tool","description":"baseline 100q run2","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-13T20:38:39.422Z","f1":0.6553,"em":0.56,"questions":100,"mode":"tool","description":"H1: explicit sub-question decomposition","memory_ts_hash":"0776e9ec7d9b"}

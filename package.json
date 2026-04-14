@@ -7,7 +7,7 @@
     "ingest": "bun src/ingest.ts",
     "ingest:quick": "bun src/ingest.ts --quick",
     "eval": "bun src/evaluate.ts",
-    "eval:quick": "bun src/evaluate.ts --samples 20"
+    "eval:quick": "bun src/evaluate.ts --samples 100"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
