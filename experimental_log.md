@@ -37,3 +37,48 @@ Key failure patterns identified:
 **Result**: Regression. The decomposition instructions likely added overhead for haiku — the model may over-think the meta-reasoning instead of just searching.
 
 **Decision**: Reverted.
+
+---
+
+## Experiment 2: H2 — Exact name formatting instruction (2026-04-14)
+
+**Hypothesis**: Many EM failures come from truncated names ("Crockett" vs "Crockett County", "Cabo Delgado" vs "Cabo Delgado Province"). Adding an explicit instruction to use full canonical names from the source should recover EM points.
+
+**Change**: Added to tool-mode prompt in `buildPrompt()`: "Use the exact name as it appears in the source, including full suffixes (e.g. 'Crockett County' not 'Crockett', 'Cabo Delgado Province' not 'Cabo Delgado')."
+
+| Metric | Baseline | H2 | Delta |
+|--------|----------|----|-------|
+| F1 | 0.674 | 0.610 | -0.064 |
+| EM | 0.580 | 0.540 | -0.040 |
+| Avg tool calls | 8.3 | 8.6 | +0.3 |
+
+**Result**: Clear regression. The formatting instruction likely distracted haiku from the core retrieval/reasoning task. The few EM points it might have recovered were overwhelmed by degradation elsewhere.
+
+**Decision**: Reverted.
+
+---
+
+## Experiment 3: H3 — Retrieval retry instruction (2026-04-14)
+
+**Hypothesis**: The under-searching failure (confident wrong answer after 3 tool calls) could be addressed by encouraging the model to retry with different keywords when initial search doesn't return what's needed.
+
+**Change**: Added to tool-mode prompt in `buildPrompt()`: "If your first search doesn't return what you need, try rephrasing with different keywords or searching for a related entity. Don't give up after one search — try at least 2-3 different queries per sub-question before concluding the information isn't available."
+
+| Metric | Baseline | H3 | Delta |
+|--------|----------|----|-------|
+| F1 | 0.674 | 0.653 | -0.021 |
+| EM | 0.580 | 0.540 | -0.040 |
+| Avg tool calls | 8.3 | 9.6 | +1.3 |
+
+**Result**: Regression despite more tool calls. The model searched more (+1.3 avg calls) but quality dropped — possibly spending extra searches on already-found information instead of pursuing the right multi-hop path.
+
+**Decision**: Reverted.
+
+---
+
+## Summary after H1/H2/H3
+
+All three prompt-level interventions regressed. Haiku appears sensitive to prompt bloat — the base prompt is already near-optimal for this model. Future experiments should focus on:
+- **Retrieval quality** (better search, reranking, hybrid weights) rather than prompt engineering
+- **Ingestion changes** (entity extraction, fact decomposition, better chunking)
+- **MCP tool design** (tool descriptions, result formatting)
