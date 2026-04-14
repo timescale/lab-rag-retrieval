@@ -10,3 +10,5 @@
 {"timestamp":"2026-04-14T14:05:08.689Z","f1":0.3333,"em":0.3333,"questions":3,"mode":"tool","description":"test recall metric","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-14T14:45:38.504Z","f1":0.6469,"em":0.54,"questions":100,"mode":"tool","description":"baseline with recall","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-14T15:54:11.023Z","f1":0.57,"em":0.46,"questions":100,"mode":"tool","description":"baseline random sample (all hops)","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-14T17:21:32.306Z","f1":0.3889,"em":0.2857,"questions":21,"mode":"tool","description":"H6: auto-hybrid search (4-hop only)","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-14T17:36:02.087Z","f1":0.4533,"em":0.3333,"questions":21,"mode":"tool","description":"H6-tweak1: auto-BM25 only (4-hop)","memory_ts_hash":"1a4c6a463978"}

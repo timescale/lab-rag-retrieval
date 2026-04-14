@@ -106,3 +106,39 @@ Avg 11.5 tool calls per question. 2594s total answering time.
 - **3-hop**: Recall 90.2%, F1 drops to 0.519 — retrieval still solid, reasoning degrades with more hops
 - **4-hop**: Recall drops to 76.2%, F1 0.516 — both retrieval and reasoning are bottlenecks
 - **Overall retrieval recall is 88.5%** — the model finds most supporting paragraphs but struggles to combine them correctly for 3+ hop questions
+
+---
+
+## Experiment 4: H6 — Auto-hybrid search in MCP tool (2026-04-14)
+
+**Hypothesis**: The model mostly uses semantic search only. Automatically running BM25 alongside semantic (using the same query text) and fusing with RRF should improve retrieval recall, especially for obscure entity names that keyword matching handles better.
+
+**Testing on 4-hop only** (21 questions) to isolate retrieval improvements.
+
+### H6 — Full auto-hybrid (both directions)
+
+**Change**: Modified `me_memory_search` in `mcp-server.ts` to always run both BM25 and semantic, regardless of which parameter the model provides.
+
+| Metric | Baseline | H6 | Delta |
+|--------|----------|----|-------|
+| F1 | 0.516 | 0.389 | -0.127 |
+| EM | 0.381 | 0.286 | -0.095 |
+| Recall | 0.762 | 0.702 | -0.060 |
+| Avg tools | — | 21.0 | — |
+
+**Result**: Clear regression. Recall dropped, F1/EM dropped. Running semantic from short keyword queries produces bad embeddings, and extra results pollute RRF ranking.
+
+### H6-tweak1 — Auto-BM25 only (one direction)
+
+**Change**: Only auto-add BM25 when semantic is provided (BM25 handles natural language fine). Don't auto-add semantic when only fulltext is provided.
+
+| Metric | Baseline | H6-tweak1 | Delta |
+|--------|----------|-----------|-------|
+| F1 | 0.516 | 0.453 | -0.063 |
+| EM | 0.381 | 0.333 | -0.048 |
+| Recall | 0.762 | 0.762 | +0.000 |
+| Avg tools | — | 18.8 | — |
+
+**Result**: Recall recovered to baseline but F1/EM still regressed. BM25 results dilute the semantic ranking without improving retrieval. More tool calls without benefit.
+
+**Decision**: Reverted. Auto-hybrid doesn't help — the model's natural search strategy is already effective.
