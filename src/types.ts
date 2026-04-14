@@ -56,6 +56,7 @@ export interface QAResult {
   context: string;
   numToolCalls: number;
   toolCalls: Array<{ tool: string; args: Record<string, unknown> }>;
+  retrievalRecall: number;
 }
 
 export interface EvalRun {

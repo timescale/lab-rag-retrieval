@@ -5,6 +5,25 @@ import { retrieve, buildPrompt } from "./memory.ts";
 import { scoreBatch } from "./scoring.ts";
 import type { MuSiQueQuestion, QAResult, EvalRun } from "./types.ts";
 
+function hashToUuid(hash: string): string {
+  const h = hash.padEnd(32, "0").slice(0, 32);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+function getSupportingIds(q: MuSiQueQuestion): Set<string> {
+  const ids = new Set<string>();
+  for (const p of q.paragraphs ?? []) {
+    if (p.is_supporting) {
+      const hash = createHash("blake2b256")
+        .update(`${p.title}\n${p.paragraph_text}`)
+        .digest("hex")
+        .slice(0, 32);
+      ids.add(hashToUuid(hash));
+    }
+  }
+  return ids;
+}
+
 // Mode: "tool" = Claude searches via MCP tools, "context" = pre-retrieved context in prompt
 const EVAL_MODE = (process.env.EVAL_MODE ?? "tool") as "tool" | "context";
 
@@ -53,6 +72,7 @@ const MAX_RETRIES = 2;
 interface ClaudeResult {
   answer: string;
   toolCalls: Array<{ tool: string; args: Record<string, unknown> }>;
+  retrievedIds: Set<string>;
 }
 
 async function askClaudeOnce(prompt: string, useMcp: boolean): Promise<ClaudeResult> {
@@ -76,6 +96,7 @@ async function askClaudeOnce(prompt: string, useMcp: boolean): Promise<ClaudeRes
   try {
     const events = JSON.parse(stdout);
     const toolCalls: ClaudeResult["toolCalls"] = [];
+    const retrievedIds = new Set<string>();
     let answer = "";
     for (const evt of events) {
       if (evt.type === "assistant") {
@@ -85,13 +106,25 @@ async function askClaudeOnce(prompt: string, useMcp: boolean): Promise<ClaudeRes
           }
         }
       }
+      if (evt.type === "user") {
+        for (const block of evt.message?.content ?? []) {
+          if (block.type === "tool_result") {
+            const text = Array.isArray(block.content)
+              ? block.content.map((c: any) => c.text ?? "").join("")
+              : String(block.content ?? "");
+            for (const m of text.matchAll(/id: ([0-9a-f-]+)/g)) {
+              retrievedIds.add(m[1]!);
+            }
+          }
+        }
+      }
       if (evt.type === "result") {
         answer = (evt.structured_output?.answer ?? evt.result ?? "").trim();
       }
     }
-    return { answer, toolCalls };
+    return { answer, toolCalls, retrievedIds };
   } catch {
-    return { answer: stdout.trim(), toolCalls: [] };
+    return { answer: stdout.trim(), toolCalls: [], retrievedIds: new Set() };
   }
 }
 
@@ -104,11 +137,11 @@ async function askClaude(prompt: string, useMcp: boolean): Promise<ClaudeResult>
         process.stderr.write(`  retry(${attempt + 1}) `);
       } else {
         console.error(`  claude failed after ${MAX_RETRIES + 1} attempts: ${e.message?.slice(0, 100)}`);
-        return { answer: "", toolCalls: [] };
+        return { answer: "", toolCalls: [], retrievedIds: new Set() };
       }
     }
   }
-  return { answer: "", toolCalls: [] };
+  return { answer: "", toolCalls: [], retrievedIds: new Set() };
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +156,7 @@ function mean(arr: number[]): number {
 function aggregateByKey(
   results: QAResult[],
   keyFn: (r: QAResult) => string,
-): Record<string, { count: number; f1: number; em: number }> {
+): Record<string, { count: number; f1: number; em: number; recall: number }> {
   const groups = new Map<string, QAResult[]>();
   for (const r of results) {
     const key = keyFn(r);
@@ -131,12 +164,13 @@ function aggregateByKey(
     arr.push(r);
     groups.set(key, arr);
   }
-  const out: Record<string, { count: number; f1: number; em: number }> = {};
+  const out: Record<string, { count: number; f1: number; em: number; recall: number }> = {};
   for (const [key, group] of groups) {
     out[key] = {
       count: group.length,
       f1: mean(group.map((r) => r.f1)),
       em: mean(group.map((r) => r.em)),
+      recall: mean(group.map((r) => r.retrievalRecall)),
     };
   }
   return out;
@@ -192,6 +226,7 @@ async function main() {
 
           let numToolCalls = 0;
           let toolCalls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+          let retrievedIds = new Set<string>();
           if (EVAL_MODE === "context") {
             context = await retrieve(q.question, sql);
             const prompt = buildPrompt(q.question, context);
@@ -203,7 +238,16 @@ async function main() {
             prediction = result.answer;
             toolCalls = result.toolCalls;
             numToolCalls = toolCalls.length;
+            retrievedIds = result.retrievedIds;
             context = "(tool mode)";
+          }
+
+          // Compute retrieval recall
+          const supportingIds = getSupportingIds(q);
+          let retrievalRecall = 0;
+          if (supportingIds.size > 0) {
+            const found = [...supportingIds].filter((id) => retrievedIds.has(id)).length;
+            retrievalRecall = found / supportingIds.size;
           }
 
           allResults[qi] = {
@@ -218,6 +262,7 @@ async function main() {
             context,
             numToolCalls,
             toolCalls,
+            retrievalRecall,
           };
 
           completed++;
@@ -258,12 +303,13 @@ async function main() {
   console.log("By Hop Count:");
   for (const [hops, stats] of Object.entries(byHops).sort((a, b) => Number(a[0]) - Number(b[0]))) {
     console.log(
-      `  ${hops}-hop: F1=${stats.f1.toFixed(3)} EM=${stats.em.toFixed(3)} (n=${stats.count})`,
+      `  ${hops}-hop: F1=${stats.f1.toFixed(3)} EM=${stats.em.toFixed(3)} Recall=${stats.recall.toFixed(3)} (n=${stats.count})`,
     );
   }
   const avgToolCalls = mean(allResults.map((r) => r.numToolCalls));
+  const avgRecall = mean(allResults.map((r) => r.retrievalRecall));
   console.log(
-    `\nOverall: F1=${overallF1.toFixed(3)} EM=${overallEM.toFixed(3)} (${allResults.length} questions, avg ${avgToolCalls.toFixed(1)} tool calls)\n`,
+    `\nOverall: F1=${overallF1.toFixed(3)} EM=${overallEM.toFixed(3)} Recall=${avgRecall.toFixed(3)} (${allResults.length} questions, avg ${avgToolCalls.toFixed(1)} tool calls)\n`,
   );
 
   // Build eval run

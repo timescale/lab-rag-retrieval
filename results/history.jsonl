@@ -7,3 +7,5 @@
 {"timestamp":"2026-04-13T20:38:39.422Z","f1":0.6553,"em":0.56,"questions":100,"mode":"tool","description":"H1: explicit sub-question decomposition","memory_ts_hash":"0776e9ec7d9b"}
 {"timestamp":"2026-04-14T11:49:46.643Z","f1":0.6098,"em":0.54,"questions":100,"mode":"tool","description":"H2: exact name formatting instruction","memory_ts_hash":"825cd47b3c81"}
 {"timestamp":"2026-04-14T13:42:39.013Z","f1":0.6528,"em":0.54,"questions":100,"mode":"tool","description":"H3: retry instruction on failed retrieval","memory_ts_hash":"498a10b6617c"}
+{"timestamp":"2026-04-14T14:05:08.689Z","f1":0.3333,"em":0.3333,"questions":3,"mode":"tool","description":"test recall metric","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-14T14:45:38.504Z","f1":0.6469,"em":0.54,"questions":100,"mode":"tool","description":"baseline with recall","memory_ts_hash":"1a4c6a463978"}
