@@ -163,3 +163,45 @@ Avg 11.5 tool calls per question. 2594s total answering time.
 **Result**: Clear regression. More results per search overwhelms haiku — the model processes 2x more content per tool call but makes worse decisions. Recall dropped, suggesting the model reads more noise and loses track of the relevant paragraphs.
 
 **Decision**: Reverted. Haiku performs best with concise, focused results.
+
+---
+
+## Experiment 6: H7 — Title search hints in tool description (2026-04-14)
+
+**Hypothesis**: The model mostly uses semantic search and misses obscure entities. Adding hints about meta title filtering and grep for exact entity lookup in the tool description should help it find specific entities faster.
+
+**Testing on 4-hop only** (21 questions).
+
+**Change**: Expanded `me_memory_search` description with tips for entity-specific searches (meta title match, grep for partial match, combining grep with semantic).
+
+| Metric | Baseline | H7 | Delta |
+|--------|----------|----|-------|
+| F1 | 0.516 | 0.374 | -0.142 |
+| EM | 0.381 | 0.238 | -0.143 |
+| Recall | 0.762 | 0.750 | -0.012 |
+| Avg tools | — | 25.1 | — |
+
+**Result**: Worst regression yet. The expanded tool description caused haiku to over-use grep/meta filters (25.1 avg tool calls) at the expense of its natural semantic search strategy. More searching ≠ better results.
+
+**Decision**: Reverted.
+
+---
+
+## Summary after H4/H6/H7 retrieval experiments
+
+All three retrieval-focused experiments regressed on 4-hop questions:
+
+| Experiment | 4-hop F1 | Delta | Notes |
+|-----------|----------|-------|-------|
+| Baseline | 0.516 | — | — |
+| H6 auto-hybrid | 0.389 | -0.127 | Diluted rankings |
+| H6-tweak1 auto-BM25 | 0.453 | -0.063 | Recall same, reasoning worse |
+| H4 top-20 results | 0.424 | -0.092 | Context overload |
+| H7 title search hints | 0.374 | -0.142 | Over-searching with filters |
+
+**Key insight**: Haiku is very sensitive to any change that increases context or complexity. The baseline configuration (semantic search, top-10/30, minimal prompt) is already near-optimal for this model. The remaining gap is primarily a **reasoning** bottleneck, not a retrieval one.
+
+**Next directions to explore**:
+- Try a stronger model (sonnet) instead of haiku for multi-hop reasoning
+- Reduce noise: trim irrelevant content from retrieved paragraphs
+- Context mode: pre-retrieve and present all context in one prompt instead of iterative tool calls
