@@ -142,3 +142,24 @@ Avg 11.5 tool calls per question. 2594s total answering time.
 **Result**: Recall recovered to baseline but F1/EM still regressed. BM25 results dilute the semantic ranking without improving retrieval. More tool calls without benefit.
 
 **Decision**: Reverted. Auto-hybrid doesn't help — the model's natural search strategy is already effective.
+
+---
+
+## Experiment 5: H4 — Increase top-K results per search (2026-04-14)
+
+**Hypothesis**: With top-10 from 30 candidates, the right paragraph may be ranked below the cutoff. Increasing to top-20 from 50 candidates gives the model more context per search, making it more likely to see the right paragraph.
+
+**Testing on 4-hop only** (21 questions).
+
+**Change**: In `mcp-server.ts`, changed default `candidateLimit` from 30→50 and `limit` from 10→20.
+
+| Metric | Baseline | H4 | Delta |
+|--------|----------|----|-------|
+| F1 | 0.516 | 0.424 | -0.092 |
+| EM | 0.381 | 0.286 | -0.095 |
+| Recall | 0.762 | 0.702 | -0.060 |
+| Avg tools | — | 22.0 | — |
+
+**Result**: Clear regression. More results per search overwhelms haiku — the model processes 2x more content per tool call but makes worse decisions. Recall dropped, suggesting the model reads more noise and loses track of the relevant paragraphs.
+
+**Decision**: Reverted. Haiku performs best with concise, focused results.
