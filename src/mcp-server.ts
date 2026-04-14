@@ -236,8 +236,7 @@ Returns the full paragraph content and metadata. Use to get full context for a s
     const lines: string[] = [];
     const date = formatDate(row.temporal as string | null);
     lines.push(`${date ? `[${date}] ` : ""}${row.content}`);
-    lines.push(`Article: ${meta.article_title ?? "unknown"}`);
-    lines.push(`Chunk: ${meta.chunk_index ?? "?"}/${meta.total_chunks ?? "?"}`);
+    lines.push(`Article: ${meta.title ?? "unknown"}`);
 
     return { content: [{ type: "text" as const, text: lines.join("\n") }] };
   },
