@@ -70,10 +70,11 @@ This is an incomplete list — anything in `memory.ts` and `mcp-server.ts` is fa
 5. If you changed **retrieval or prompts**: just re-run eval
 6. If you changed **ingestion**: re-run `bun run ingest --force`, then eval
 7. Run `bun run eval:quick --desc "what changed"`
-8. If F1 improved: `git commit` with scores in the message
-9. If F1 regressed: `git checkout src/memory.ts src/mcp-server.ts`
+8. Update `experimental_log.md` immediately with hypothesis, changes, results table (with deltas vs baseline), analysis, and decision (adopted/reverted)
+9. If F1 improved: `git commit` with scores in the message
+10. If F1 regressed: `git checkout src/memory.ts src/mcp-server.ts`
 
-**Always test one experiment at a time.**
+**Always test one experiment at a time. Always update the experiment log after each experiment.**
 
 ## DB Schema
 
