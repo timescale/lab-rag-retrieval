@@ -76,9 +76,33 @@ Key failure patterns identified:
 
 ---
 
-## Summary after H1/H2/H3
+## Summary after H1/H2/H3 (2-hop only baseline)
 
 All three prompt-level interventions regressed. Haiku appears sensitive to prompt bloat — the base prompt is already near-optimal for this model. Future experiments should focus on:
 - **Retrieval quality** (better search, reranking, hybrid weights) rather than prompt engineering
 - **Ingestion changes** (entity extraction, fact decomposition, better chunking)
 - **MCP tool design** (tool descriptions, result formatting)
+
+---
+
+## New Baseline — Random Sample with All Hop Types (2026-04-14)
+
+Switched eval from first-100 (all 2-hop) to seeded random sample (seed=42) covering all hop types. Added retrieval recall metric.
+
+**Config**: haiku model, 100 random questions, tool mode with MCP search
+
+| Hops | F1 | EM | Recall | n |
+|------|----|----|--------|---|
+| 2-hop | 0.655 | 0.605 | 0.934 | 38 |
+| 3-hop | 0.519 | 0.366 | 0.902 | 41 |
+| 4-hop | 0.516 | 0.381 | 0.762 | 21 |
+| **Overall** | **0.570** | **0.460** | **0.885** | **100** |
+
+Avg 11.5 tool calls per question. 2594s total answering time.
+
+### Key observations
+
+- **2-hop**: Recall 93.4%, F1 0.655 — retrieval is good, reasoning is the bottleneck
+- **3-hop**: Recall 90.2%, F1 drops to 0.519 — retrieval still solid, reasoning degrades with more hops
+- **4-hop**: Recall drops to 76.2%, F1 0.516 — both retrieval and reasoning are bottlenecks
+- **Overall retrieval recall is 88.5%** — the model finds most supporting paragraphs but struggles to combine them correctly for 3+ hop questions
