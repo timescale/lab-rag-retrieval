@@ -38,6 +38,7 @@ function parseArgs() {
   const args = process.argv.slice(2);
   let samples = Infinity;
   let description = "";
+  let hops: number | null = null;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--samples" && args[i + 1]) {
@@ -46,10 +47,13 @@ function parseArgs() {
     } else if (args[i] === "--desc" && args[i + 1]) {
       description = args[i + 1]!;
       i++;
+    } else if (args[i] === "--hops" && args[i + 1]) {
+      hops = Number.parseInt(args[i + 1]!);
+      i++;
     }
   }
 
-  return { samples, description };
+  return { samples, description, hops };
 }
 
 // ---------------------------------------------------------------------------
@@ -182,15 +186,19 @@ function aggregateByKey(
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const { samples: maxSamples, description } = parseArgs();
+  const { samples: maxSamples, description, hops: hopsFilter } = parseArgs();
 
   // Load dev questions (seeded random sample for reproducible multi-hop coverage)
   const lines = readFileSync(DEV_PATH, "utf-8").trim().split("\n");
   const allQuestions: MuSiQueQuestion[] = lines.map((l) => JSON.parse(l));
-  const questions = sampleQuestions(allQuestions, maxSamples);
+  let questions = sampleQuestions(allQuestions, maxSamples);
+  if (hopsFilter !== null) {
+    questions = questions.filter((q) => (q.question_decomposition?.length ?? 0) === hopsFilter);
+  }
 
+  const hopsLabel = hopsFilter !== null ? ` (${hopsFilter}-hop only)` : "";
   console.log(
-    `=== MuSiQue RAG Evaluation ===\nQuestions: ${questions.length}/${allQuestions.length}\nMode: ${EVAL_MODE}\n`,
+    `=== MuSiQue RAG Evaluation ===\nQuestions: ${questions.length}/${allQuestions.length}${hopsLabel}\nMode: ${EVAL_MODE}\n`,
   );
 
   // Connect and verify corpus is loaded
