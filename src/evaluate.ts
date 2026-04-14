@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import postgres from "postgres";
 import { retrieve, buildPrompt } from "./memory.ts";
 import { scoreBatch } from "./scoring.ts";
+import { sampleQuestions } from "./sample.ts";
 import type { MuSiQueQuestion, QAResult, EvalRun } from "./types.ts";
 
 function hashToUuid(hash: string): string {
@@ -183,10 +184,10 @@ function aggregateByKey(
 async function main() {
   const { samples: maxSamples, description } = parseArgs();
 
-  // Load dev questions
+  // Load dev questions (seeded random sample for reproducible multi-hop coverage)
   const lines = readFileSync(DEV_PATH, "utf-8").trim().split("\n");
   const allQuestions: MuSiQueQuestion[] = lines.map((l) => JSON.parse(l));
-  const questions = allQuestions.slice(0, maxSamples);
+  const questions = sampleQuestions(allQuestions, maxSamples);
 
   console.log(
     `=== MuSiQue RAG Evaluation ===\nQuestions: ${questions.length}/${allQuestions.length}\nMode: ${EVAL_MODE}\n`,
