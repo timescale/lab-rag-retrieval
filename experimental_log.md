@@ -297,27 +297,35 @@ Deep analysis of 4-hop failures revealed 3 questions with entity name collision 
 
 ## Updated Baseline (2026-04-15)
 
-**Config**: haiku model, 100 questions (error-filtered, seeded random), tool mode, concurrency 10
+**Config**: haiku model, 100 questions (6 dataset errors filtered, seeded random), tool mode, concurrency 10
+
+Two runs for variance:
+
+| Run | F1 | EM | Acc | Recall | Avg tools |
+|-----|----|----|-----|--------|-----------|
+| Run 1 | 0.555 | 0.440 | 0.580 | 0.878 | 11.7 |
+| Run 2 | 0.563 | 0.450 | 0.610 | 0.890 | 11.6 |
+
+Per-hop breakdown (Run 2):
 
 | Hops | F1 | EM | Acc | Recall | n |
 |------|----|----|-----|--------|---|
-| 2-hop | 0.689 | 0.605 | 0.737 | 0.934 | 38 |
-| 3-hop | 0.481 | 0.326 | 0.512 | 0.868 | 43 |
-| 4-hop | 0.456 | 0.368 | 0.421 | 0.789 | 19 |
-| **Overall** | **0.555** | **0.440** | **0.580** | **0.878** | **100** |
-
-Avg 11.7 tool calls. 1449s answering + 123s judging.
+| 2-hop | 0.615 | 0.553 | 0.632 | 0.934 | 38 |
+| 3-hop | 0.569 | 0.372 | 0.674 | 0.884 | 43 |
+| 4-hop | 0.447 | 0.421 | 0.421 | 0.816 | 19 |
+| **Overall** | **0.563** | **0.450** | **0.610** | **0.890** | **100** |
 
 ### Key observations
 
-- **Accuracy >> EM**: LLM judge credits ~14 additional answers (0.580 vs 0.440) — many answers are semantically correct but fail exact match
-- **2-hop**: Recall 93.4%, Acc 73.7% — retrieval is strong, reasoning gap is moderate
-- **3-hop**: Recall 86.8%, Acc 51.2% — retrieval still decent, reasoning degrades significantly
-- **4-hop**: Recall 78.9%, Acc 42.1% — both retrieval and reasoning are bottlenecks
+- **Accuracy >> EM**: LLM judge credits ~16 additional answers (0.610 vs 0.450) — many answers are semantically correct but fail exact match
+- **2-hop**: Recall 93.4%, Acc 63.2% — retrieval is strong, reasoning gap is moderate
+- **3-hop**: Recall 88.4%, Acc 67.4% — retrieval decent, but EM low (37.2%) due to answer formatting
+- **4-hop**: Recall 81.6%, Acc 42.1% — both retrieval and reasoning are bottlenecks
 - **Retrieval is not the primary bottleneck** for 2-hop and 3-hop; reasoning is
+- **Tool parameter usage**: grep 4.4%, all others (temporal, meta, tree, weights) <0.5% — significant schema bloat
 
 ### Remaining directions
 
 - **Stronger model** (sonnet) for better multi-hop reasoning
+- **Strip unused tool parameters** — remove temporal, meta, tree, weights, me_memory_tree to reduce token overhead
 - **Context mode** — skip iterative tool calls, pre-retrieve and present all context at once
-- **Fewer, better results** — reduce from top-10 to top-5 to decrease noise
