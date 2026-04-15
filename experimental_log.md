@@ -226,3 +226,67 @@ All three retrieval-focused experiments regressed on 4-hop questions:
 - Try a stronger model (sonnet) instead of haiku for multi-hop reasoning
 - Reduce noise: trim irrelevant content from retrieved paragraphs
 - Context mode: pre-retrieve and present all context in one prompt instead of iterative tool calls
+
+---
+
+## Experiment 7: I1 — Entity-enriched content (2026-04-14)
+
+**Hypothesis**: Appending extracted entity names (capitalized noun phrases) to paragraph content would enrich both BM25 and semantic embeddings, making obscure entities more findable.
+
+**Change**: Added `extractEntities()` and `formatContent()` to `memory.ts`. Full reingest of 139k paragraphs with new embeddings (batch size reduced 2048→1024 to avoid token limits). Testing on 4-hop only (21 questions).
+
+| Metric | Baseline | I1 | Delta |
+|--------|----------|----|-------|
+| F1 | 0.516 | 0.471 | -0.045 |
+| EM | 0.381 | 0.381 | +0.000 |
+| Recall | 0.762 | 0.702 | -0.060 |
+
+**Result**: Appended entities diluted the embedding signal. Reverted + full reingest to baseline.
+
+---
+
+## Experiment 8: Tree path in results + article lookup hint (2026-04-15)
+
+**Hypothesis**: If the model can see which article a result belongs to, it can fetch all paragraphs from that article via tree filter — useful for multi-hop where related facts are in the same article.
+
+**Change**: Added `article: wiki.{slug}` to search result lines. Tested two variants on 4-hop (21 questions):
+
+| Variant | F1 | EM | Recall | Tools |
+|---------|----|----|--------|-------|
+| Baseline | 0.516 | 0.381 | 0.762 | — |
+| Tree path + hint | 0.495 | 0.333 | **0.786** | 19.6 |
+| Tree path, no hint | 0.511 | 0.381 | 0.762 | 21.5 |
+
+**Notable**: The hint version was the **first experiment to improve recall** (+0.024). The model used tree filter 10 times across 21 questions. But F1/EM regressed from over-exploration.
+
+**However**, investigation revealed the tree approach is fundamentally limited for this corpus:
+
+### Corpus structure insight
+
+The IRCoT corpus is NOT a Wikipedia dump — it's built from individual paragraphs selected for MuSiQue questions:
+- 139,416 paragraphs from 114,719 unique article titles
+- **94% of articles have just 1 paragraph** in the corpus
+- Each MuSiQue question includes ~20 paragraphs (2-4 supporting + ~16 distractors)
+- The corpus deduplicates these across all train/dev/test splits
+
+So "get all paragraphs from this article" almost always returns just the one we already found. The tree/article approach is a dead end for this dataset.
+
+**Decision**: Reverted both variants.
+
+---
+
+## Overall status after 8 experiments
+
+**All experiments regressed. Baseline is still optimal.**
+
+The model (haiku) is extremely sensitive to added complexity — every change to prompts, retrieval config, tool descriptions, or content format has hurt performance. The baseline semantic search with minimal prompt is near-optimal.
+
+Key bottlenecks:
+- **4-hop recall (76.2%)**: Some obscure entities can't be found, but all attempts to improve retrieval added noise that hurt more than helped
+- **3-hop reasoning**: 90% recall but only 52% F1 — the model finds paragraphs but can't chain them
+- **Answer formatting**: ~5-10% of failures are truncation ("Crockett" vs "Crockett County")
+
+Remaining unexplored levers:
+- **Stronger model** (sonnet) for better multi-hop reasoning
+- **Context mode** — skip iterative tool calls, pre-retrieve and present all context at once
+- **Fewer, better results** — reduce from top-10 to top-5 to decrease noise

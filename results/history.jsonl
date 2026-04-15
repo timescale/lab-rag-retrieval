@@ -15,3 +15,5 @@
 {"timestamp":"2026-04-14T19:31:43.636Z","f1":0.4238,"em":0.2857,"questions":21,"mode":"tool","description":"H4: top-20 from 50 candidates (4-hop)","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-14T21:19:51.031Z","f1":0.3739,"em":0.2381,"questions":21,"mode":"tool","description":"H7: title search hints in tool desc (4-hop)","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-14T22:49:51.396Z","f1":0.4714,"em":0.381,"questions":21,"mode":"tool","description":"I1: entity-enriched content (4-hop)","memory_ts_hash":"8a86366be231"}
+{"timestamp":"2026-04-15T08:55:59.134Z","f1":0.4952,"em":0.3333,"questions":21,"mode":"tool","description":"tree path in results + article hint (4-hop)","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-15T09:16:35.728Z","f1":0.5111,"em":0.381,"questions":21,"mode":"tool","description":"tree path in results only, no hint (4-hop)","memory_ts_hash":"1a4c6a463978"}
