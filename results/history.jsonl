@@ -17,3 +17,5 @@
 {"timestamp":"2026-04-14T22:49:51.396Z","f1":0.4714,"em":0.381,"questions":21,"mode":"tool","description":"I1: entity-enriched content (4-hop)","memory_ts_hash":"8a86366be231"}
 {"timestamp":"2026-04-15T08:55:59.134Z","f1":0.4952,"em":0.3333,"questions":21,"mode":"tool","description":"tree path in results + article hint (4-hop)","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-15T09:16:35.728Z","f1":0.5111,"em":0.381,"questions":21,"mode":"tool","description":"tree path in results only, no hint (4-hop)","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-15T10:25:03.864Z","f1":0.5079,"em":0.381,"questions":21,"mode":"tool","description":"test accuracy metric","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-15T10:58:37.098Z","f1":0.5552,"em":0.44,"questions":100,"mode":"tool","description":"baseline with accuracy + error filter","memory_ts_hash":"1a4c6a463978"}

@@ -281,12 +281,43 @@ So "get all paragraphs from this article" almost always returns just the one we 
 
 The model (haiku) is extremely sensitive to added complexity — every change to prompts, retrieval config, tool descriptions, or content format has hurt performance. The baseline semantic search with minimal prompt is near-optimal.
 
-Key bottlenecks:
-- **4-hop recall (76.2%)**: Some obscure entities can't be found, but all attempts to improve retrieval added noise that hurt more than helped
-- **3-hop reasoning**: 90% recall but only 52% F1 — the model finds paragraphs but can't chain them
-- **Answer formatting**: ~5-10% of failures are truncation ("Crockett" vs "Crockett County")
+---
 
-Remaining unexplored levers:
+## Dataset quality audit (2026-04-15)
+
+Deep analysis of 4-hop failures revealed 3 questions with entity name collision bugs — the question composition process mechanically chains entity names across hops without checking for disambiguation. These are documented in `results/dataset-errors.json` and now excluded from evaluation.
+
+### Evaluation improvements
+
+- **LLM-as-judge accuracy metric**: For non-EM answers, an LLM judge evaluates semantic equivalence. This captures cases like "Paraguay" vs "Alfredo Stroessner's Paraguay" that are correct but fail EM.
+- **Dataset error filtering**: Questions in `results/dataset-errors.json` are excluded, with over-sampling to maintain target question count.
+- **Concurrency increased** from 4 to 10 — cuts eval time from ~43 min to ~26 min.
+
+---
+
+## Updated Baseline (2026-04-15)
+
+**Config**: haiku model, 100 questions (error-filtered, seeded random), tool mode, concurrency 10
+
+| Hops | F1 | EM | Acc | Recall | n |
+|------|----|----|-----|--------|---|
+| 2-hop | 0.689 | 0.605 | 0.737 | 0.934 | 38 |
+| 3-hop | 0.481 | 0.326 | 0.512 | 0.868 | 43 |
+| 4-hop | 0.456 | 0.368 | 0.421 | 0.789 | 19 |
+| **Overall** | **0.555** | **0.440** | **0.580** | **0.878** | **100** |
+
+Avg 11.7 tool calls. 1449s answering + 123s judging.
+
+### Key observations
+
+- **Accuracy >> EM**: LLM judge credits ~14 additional answers (0.580 vs 0.440) — many answers are semantically correct but fail exact match
+- **2-hop**: Recall 93.4%, Acc 73.7% — retrieval is strong, reasoning gap is moderate
+- **3-hop**: Recall 86.8%, Acc 51.2% — retrieval still decent, reasoning degrades significantly
+- **4-hop**: Recall 78.9%, Acc 42.1% — both retrieval and reasoning are bottlenecks
+- **Retrieval is not the primary bottleneck** for 2-hop and 3-hop; reasoning is
+
+### Remaining directions
+
 - **Stronger model** (sonnet) for better multi-hop reasoning
 - **Context mode** — skip iterative tool calls, pre-retrieve and present all context at once
 - **Fewer, better results** — reduce from top-10 to top-5 to decrease noise
