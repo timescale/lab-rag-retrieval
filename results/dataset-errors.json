@@ -57,5 +57,20 @@
       "model_answer": "Chicago Bulls",
       "model_reasoning": "Model may have followed a different player entirely due to ambiguity in the question."
     }
+  },
+  {
+    "questionId": "4hop1__638988_17130_70784_79935",
+    "question": "When was the region that lies to the north of the region where Aluf is located and the Persian Gulf created?",
+    "expectedAnswer": "1930",
+    "issue": "Nonexistent entity — 'Aluf' is a Hebrew military rank, not a place/person/entity",
+    "reasoning": "Step 1 asks 'Aluf >> country' but 'Aluf' is the Hebrew word for Major-General, not a named entity. The supporting paragraph (Chaim Herzog) does not contain the word 'Aluf' — it uses the English translation 'Major-General.' The word 'Aluf' appears only once in the entire 139k corpus, as a rank prefix in the Yossi Ben Hanan paragraph. No text search can connect 'Aluf' to the Chaim Herzog paragraph. Additionally, Step 3 claims Saudi Arabia lies 'north of the Middle East' which is geographically incorrect.",
+    "evidence": {
+      "step1_question": "Aluf >> country",
+      "step1_answer": "Israel",
+      "step1_paragraph_title": "Chaim Herzog",
+      "step1_contains_aluf": false,
+      "corpus_mentions_of_aluf": 1,
+      "only_mention": "Yossi Ben Hanan paragraph: 'Aluf (res.) Yossi Ben Hanan' — different person entirely"
+    }
   }
 ]
