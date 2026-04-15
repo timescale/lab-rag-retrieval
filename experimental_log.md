@@ -166,6 +166,27 @@ Avg 11.5 tool calls per question. 2594s total answering time.
 
 ---
 
+## Experiment 7: I1 — Entity-enriched content (2026-04-14)
+
+**Hypothesis**: Appending extracted entity names to paragraph content would enrich both BM25 keywords and semantic embeddings, making obscure entities more findable. Extracts capitalized multi-word phrases and appends as `| Entities: X, Y, Z`.
+
+**Change**: Added `extractEntities()` and `formatContent()` to `memory.ts` `ingest()`. Full reingest of 139k paragraphs with new embeddings. Also reduced `EMBEDDING_BATCH_SIZE` from 2048→1024 to avoid token limit errors from longer content.
+
+**Testing on 4-hop only** (21 questions).
+
+| Metric | Baseline | I1 | Delta |
+|--------|----------|----|-------|
+| F1 | 0.516 | 0.471 | -0.045 |
+| EM | 0.381 | 0.381 | +0.000 |
+| Recall | 0.762 | 0.702 | -0.060 |
+| Avg tools | — | 19.7 | — |
+
+**Result**: EM unchanged but F1 and recall both dropped. The appended entity text likely diluted the paragraph's core semantic signal in the embedding, making some paragraphs harder to find via semantic search. The regex-based entity extraction also included some noise (false positives).
+
+**Decision**: Reverted. Full reingest to restore original content format.
+
+---
+
 ## Experiment 6: H7 — Title search hints in tool description (2026-04-14)
 
 **Hypothesis**: The model mostly uses semantic search and misses obscure entities. Adding hints about meta title filtering and grep for exact entity lookup in the tool description should help it find specific entities faster.
