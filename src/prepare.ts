@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import postgres from "postgres";
+import { TABLE_NAME } from "./config.ts";
 
 const GDRIVE_FILE_ID = "1tGdADlNjWFaHLeZZGShh2IRcpO6Lv24h";
 const ZIP_PATH = "data/musique.zip";
@@ -172,36 +173,21 @@ async function setupDatabase(): Promise<void> {
 
   console.log("Creating extensions...");
   await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
-  await sql.unsafe("CREATE EXTENSION IF NOT EXISTS ltree");
   await sql.unsafe("CREATE EXTENSION IF NOT EXISTS pg_textsearch");
 
-  console.log("Creating memory table...");
+  console.log(`Creating ${TABLE_NAME} table...`);
+  await sql.unsafe(`DROP TABLE IF EXISTS ${TABLE_NAME}`);
   await sql.unsafe(`
-    CREATE TABLE IF NOT EXISTS memory (
+    CREATE TABLE ${TABLE_NAME} (
       id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       content    text NOT NULL,
-      meta       jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(meta) = 'object'),
-      tree       ltree NOT NULL DEFAULT '',
-      temporal   tstzrange,
       embedding  halfvec(1536),
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz
+      created_at timestamptz NOT NULL DEFAULT now()
     )
   `);
 
-  await sql.unsafe(`
-    DO $$ BEGIN
-      ALTER TABLE memory ADD CONSTRAINT temporal_bounds_convention CHECK (
-        temporal IS NULL
-        OR (lower(temporal) = upper(temporal) AND lower_inc(temporal) AND upper_inc(temporal))
-        OR (lower(temporal) < upper(temporal) AND lower_inc(temporal) AND NOT upper_inc(temporal))
-      );
-    EXCEPTION WHEN duplicate_object THEN NULL;
-    END $$
-  `);
-
-  const [row] = await sql`SELECT count(*)::int as count FROM memory`;
-  console.log(`\nDone. Memory table has ${row!.count} rows.`);
+  const [row] = await sql.unsafe(`SELECT count(*)::int as count FROM ${TABLE_NAME}`);
+  console.log(`\nDone. ${TABLE_NAME} table has ${row!.count} rows.`);
 
   await sql.end();
 }

@@ -9,6 +9,7 @@
 // =============================================================================
 
 import { embedWithCache } from "./embed-cache.ts";
+import { TABLE_NAME } from "./config.ts";
 import type { Sql, CorpusDoc } from "./types.ts";
 
 // -- Config ------------------------------------------------------------------
@@ -45,14 +46,6 @@ export async function embed(texts: string[]): Promise<number[][]> {
 
 // -- Ingestion ---------------------------------------------------------------
 
-function slugFromTitle(title: string): string {
-  return title.toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").slice(0, 100);
-}
-
-/**
- * Ingest corpus documents into the memory table.
- * Each doc is a single Wikipedia paragraph — no further chunking needed.
- */
 /** Convert a 32-char hex hash to UUID format (8-4-4-4-12) */
 function hashToUuid(hash: string): string {
   const h = hash.padEnd(32, "0").slice(0, 32);
@@ -66,11 +59,6 @@ export async function ingest(
   const rows = docs.map((doc) => ({
     id: hashToUuid(doc.id),
     content: `[${doc.title}] ${doc.paragraph_text}`,
-    meta: {
-      title: doc.title,
-      corpus_id: doc.id,
-    },
-    tree: `wiki.${slugFromTitle(doc.title)}`,
   }));
 
   if (rows.length === 0) return;
@@ -82,21 +70,18 @@ export async function ingest(
 
   // Drop indexes for fast bulk insert
   console.log(`  Dropping indexes for bulk insert...`);
-  await sql.unsafe(`DROP INDEX IF EXISTS memory_embedding_hnsw_idx`);
-  await sql.unsafe(`DROP INDEX IF EXISTS memory_content_bm25_idx`);
-  await sql.unsafe(`DROP INDEX IF EXISTS memory_meta_gin_idx`);
-  await sql.unsafe(`DROP INDEX IF EXISTS memory_tree_gist_idx`);
-  await sql.unsafe(`DROP INDEX IF EXISTS memory_temporal_gist_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS ${TABLE_NAME}_embedding_hnsw_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS ${TABLE_NAME}_content_bm25_idx`);
 
   // COPY for fast bulk insert
-  console.log(`  Inserting ${rows.length} memories via COPY...`);
-  const writable = await sql`COPY memory (id, content, meta, tree, embedding) FROM STDIN`.writable();
+  console.log(`  Inserting ${rows.length} rows via COPY...`);
+  const writable = await sql.unsafe(`COPY ${TABLE_NAME} (id, content, embedding) FROM STDIN`).writable();
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     const vec = `[${embeddings[i]!.join(",")}]`;
     const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
-    const line = `${row.id}\t${esc(row.content)}\t${esc(JSON.stringify(row.meta))}\t${row.tree}\t${vec}\n`;
+    const line = `${row.id}\t${esc(row.content)}\t${vec}\n`;
     if (!writable.write(line)) {
       await new Promise<void>((resolve) => writable.once("drain", resolve));
     }
@@ -115,28 +100,16 @@ export async function ingest(
   console.log(`  Recreating indexes...`);
   console.log(`    HNSW (embedding)...`);
   await sql.unsafe(`
-    CREATE INDEX memory_embedding_hnsw_idx
-      ON memory USING hnsw (embedding halfvec_cosine_ops)
+    CREATE INDEX ${TABLE_NAME}_embedding_hnsw_idx
+      ON ${TABLE_NAME} USING hnsw (embedding halfvec_cosine_ops)
       WITH (m = 16, ef_construction = 64)
   `);
   console.log(`    BM25 (content)...`);
   await sql.unsafe(`
-    CREATE INDEX memory_content_bm25_idx
-      ON memory USING bm25 (content)
+    CREATE INDEX ${TABLE_NAME}_content_bm25_idx
+      ON ${TABLE_NAME} USING bm25 (content)
       WITH (text_config = 'english', k1 = 1.2, b = 0.75)
   `);
-  console.log(`    GIN (meta)...`);
-  await sql.unsafe(
-    `CREATE INDEX memory_meta_gin_idx ON memory USING gin (meta)`,
-  );
-  console.log(`    GIST (tree)...`);
-  await sql.unsafe(
-    `CREATE INDEX memory_tree_gist_idx ON memory USING gist (tree)`,
-  );
-  console.log(`    GIST (temporal)...`);
-  await sql.unsafe(
-    `CREATE INDEX memory_temporal_gist_idx ON memory USING gist (temporal) WHERE temporal IS NOT NULL`,
-  );
   console.log(`  Indexes rebuilt.`);
 }
 
@@ -185,16 +158,16 @@ export async function retrieve(
   const [bm25Results, semanticResults] = await Promise.all([
     sql.unsafe<Array<{ id: string; content: string; score: number }>>(
       `SELECT id, content,
-              -(content <@> to_bm25query($1, 'memory_content_bm25_idx')) as score
-       FROM memory
-       ORDER BY content <@> to_bm25query($1, 'memory_content_bm25_idx')
+              -(content <@> to_bm25query($1, '${TABLE_NAME}_content_bm25_idx')) as score
+       FROM ${TABLE_NAME}
+       ORDER BY content <@> to_bm25query($1, '${TABLE_NAME}_content_bm25_idx')
        LIMIT $2`,
       [question, CANDIDATE_LIMIT],
     ),
     sql.unsafe<Array<{ id: string; content: string; score: number }>>(
       `SELECT id, content,
               (1 - (embedding <=> $1::halfvec)) as score
-       FROM memory
+       FROM ${TABLE_NAME}
        WHERE embedding IS NOT NULL
          AND (embedding <=> $1::halfvec) < 1.0
        ORDER BY score DESC, created_at DESC
@@ -211,7 +184,7 @@ export async function retrieve(
 
   // Fetch full content for top results, preserving RRF rank order
   const rows = await sql.unsafe<Array<{ id: string; content: string }>>(
-    `SELECT id, content FROM memory WHERE id = ANY($1::uuid[])`,
+    `SELECT id, content FROM ${TABLE_NAME} WHERE id = ANY($1::uuid[])`,
     [topIds],
   );
 

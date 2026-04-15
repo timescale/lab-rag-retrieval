@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { retrieve, buildPrompt } from "./memory.ts";
 import { scoreBatch } from "./scoring.ts";
 import { sampleQuestions } from "./sample.ts";
+import { TABLE_NAME } from "./config.ts";
 import type { MuSiQueQuestion, QAResult, EvalRun } from "./types.ts";
 
 function hashToUuid(hash: string): string {
@@ -69,7 +70,7 @@ const MCP_CONFIG = JSON.stringify({
   },
 });
 
-const MCP_TOOLS = "mcp__recall__me_memory_search,mcp__recall__me_memory_get,mcp__recall__me_memory_tree";
+const MCP_TOOLS = "mcp__recall__me_memory_search,mcp__recall__me_memory_get";
 
 const TIMEOUT_MS = 240_000;
 const MAX_RETRIES = 2;
@@ -220,13 +221,13 @@ async function main() {
   // Connect and verify corpus is loaded
   const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
 
-  const [memRow] = await sql`SELECT count(*)::int as count FROM memory`;
+  const [memRow] = await sql.unsafe(`SELECT count(*)::int as count FROM ${TABLE_NAME}`);
   if (memRow!.count === 0) {
-    console.error("Memory table is empty. Run `bun run ingest` first.");
+    console.error(`${TABLE_NAME} table is empty. Run \`bun run ingest\` first.`);
     await sql.end();
     process.exit(1);
   }
-  console.log(`Corpus: ${memRow!.count} paragraphs in memory\n`);
+  console.log(`Corpus: ${memRow!.count} paragraphs in ${TABLE_NAME}\n`);
 
   // Answer all questions
   const allResults: QAResult[] = new Array(questions.length);

@@ -1,4 +1,4 @@
-// Ingest the 139k IRCoT corpus into the memory table.
+// Ingest the 139k IRCoT corpus into the corpus table.
 //
 // Run this after `bun run setup` and whenever you change ingestion in memory.ts.
 // Usage: bun run ingest
@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import postgres from "postgres";
 import { ingest } from "./memory.ts";
 import { sampleQuestions } from "./sample.ts";
+import { TABLE_NAME } from "./config.ts";
 import type { CorpusDoc } from "./types.ts";
 
 const CORPUS_PATH = "data/corpus.jsonl";
@@ -65,11 +66,11 @@ async function main() {
   console.log(`${docs.length} paragraphs loaded`);
 
   // Check if corpus is already ingested
-  const [row] = await sql`SELECT count(*)::int as count FROM memory`;
+  const [row] = await sql.unsafe(`SELECT count(*)::int as count FROM ${TABLE_NAME}`);
   if (row!.count > 0) {
     const force = process.argv.includes("--force");
     if (!force) {
-      console.log(`Memory table already has ${row!.count} rows.`);
+      console.log(`${TABLE_NAME} table already has ${row!.count} rows.`);
       console.log("Use --force to truncate and re-ingest.");
       await sql.end();
       return;
@@ -77,14 +78,14 @@ async function main() {
   }
 
   // Truncate and ingest
-  console.log("Truncating memory table...");
-  await sql`TRUNCATE memory`;
+  console.log(`Truncating ${TABLE_NAME} table...`);
+  await sql.unsafe(`TRUNCATE ${TABLE_NAME}`);
 
   const t0 = performance.now();
   await ingest(docs, sql);
   const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
 
-  const [finalRow] = await sql`SELECT count(*)::int as count FROM memory`;
+  const [finalRow] = await sql.unsafe(`SELECT count(*)::int as count FROM ${TABLE_NAME}`);
   console.log(`\nDone. ${finalRow!.count} memories stored (${elapsed}s)`);
 
   await sql.end();
