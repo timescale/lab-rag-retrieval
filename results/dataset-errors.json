@@ -72,5 +72,18 @@
       "corpus_mentions_of_aluf": 1,
       "only_mention": "Yossi Ben Hanan paragraph: 'Aluf (res.) Yossi Ben Hanan' — different person entirely"
     }
+  },
+  {
+    "questionId": "4hop2__161602_474028_88460_21074",
+    "question": "Who runs the school system in the country on the natural boundary between the country that hosted the tournament and the country where A Don is from?",
+    "expectedAnswer": "the Ministry of Education",
+    "issue": "Geographically incorrect — Myanmar is not a natural boundary between Thailand and Laos",
+    "reasoning": "Step 3 asks 'what natural boundary lies between Thailand and Laos' and the expected answer is Myanmar. But Myanmar is not a boundary between Thailand and Laos — those two countries share a direct border along the Mekong River. Myanmar is a separate country that happens to border both. The supporting paragraph (Geography of Myanmar) confirms Myanmar borders both Thailand and Laos, but that doesn't make it a boundary between them.",
+    "evidence": {
+      "step3_question": "what natural boundary lies between Thailand and Laos",
+      "step3_answer": "Myanmar",
+      "step3_paragraph": "Myanmar (also known as Burma) is the northwestern-most country of mainland Southeast Asia, bordering China, India, Bangladesh, Thailand and Laos.",
+      "geographic_reality": "Thailand and Laos share a direct border along the Mekong River. Myanmar borders both but is not between them."
+    }
   }
 ]
