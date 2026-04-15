@@ -1,0 +1,47 @@
+[
+  {
+    "questionId": "4hop1__463635_624859_355213_203322",
+    "question": "What county shares a border with the county where the birthplace of Tonight You're Mine's performer is located?",
+    "expectedAnswer": "Cabarrus County",
+    "issue": "Entity name collision across hops — Cleveland, Ohio vs Cleveland, North Carolina",
+    "reasoning": "Step 2 extracts 'Cleveland' from a paragraph that explicitly says 'Cleveland, Ohio singer-songwriter Eric Carmen.' Step 3 then resolves 'Cleveland' to Cleveland, North Carolina (population 871) to get Rowan County. The chain is logically inconsistent — if the paragraph says Ohio, the next hop should use Ohio's Cleveland.",
+    "evidence": {
+      "step2_paragraph": "The Definitive Collection is a 1997 greatest hits compilation album of all the singles released by Cleveland, Ohio singer-songwriter Eric Carmen.",
+      "step2_answer": "Cleveland",
+      "step3_paragraph": "Cleveland is a town in the Cleveland Township of Rowan County, North Carolina, United States.",
+      "step3_answer": "Rowan County",
+      "model_answer": "Summit County (borders Cuyahoga County, which contains Cleveland, Ohio)",
+      "model_reasoning": "The model correctly followed the Ohio chain, which is consistent with the Step 2 paragraph."
+    }
+  },
+  {
+    "questionId": "4hop2__638706_765799_282674_759393",
+    "question": "Which county shares border with the county having the birth city of the director of Let the Good Times Roll?",
+    "expectedAnswer": "Cabarrus County",
+    "issue": "Same entity name collision — Cleveland, Ohio vs Cleveland, North Carolina",
+    "reasoning": "Step 2 says Robert Abel was 'Born in Cleveland' and 'received degrees from UCLA,' strongly implying Cleveland, Ohio. Step 3 resolves 'Cleveland' to Cleveland, North Carolina. Same bug pattern as the Eric Carmen question.",
+    "evidence": {
+      "step2_paragraph": "Born in Cleveland, he received degrees in Design and Film from UCLA.",
+      "step2_answer": "Cleveland",
+      "step3_paragraph": "Cleveland is a town in the Cleveland Township of Rowan County, North Carolina, United States.",
+      "step3_answer": "Rowan County",
+      "model_answer": "Summit County (borders Cuyahoga County, Cleveland, Ohio)",
+      "model_reasoning": "A UCLA-educated filmmaker from 'Cleveland' is overwhelmingly likely to be from Cleveland, Ohio."
+    }
+  },
+  {
+    "questionId": "4hop2__55764_65539_34770_26556",
+    "question": "What county borders the county with the largest city in the state where Birth of a Nation was filmed?",
+    "expectedAnswer": "Presque Isle County",
+    "issue": "Entity name collision — Atlanta, Georgia vs Atlanta, Michigan",
+    "reasoning": "Step 1 establishes filming in Georgia. Step 2 correctly identifies Atlanta as Georgia's largest city. Step 3 then resolves 'Atlanta' to Atlanta, Michigan (Montmorency County) instead of Atlanta, Georgia (Fulton County). The chain breaks by switching states mid-reasoning.",
+    "evidence": {
+      "step2_paragraph": "The largest municipality by population in Georgia is Atlanta with 420,003 residents.",
+      "step2_answer": "Atlanta",
+      "step3_paragraph": "Sno*Drift is a rally racing event held in Montmorency County, Michigan, annually, with headquarters in Atlanta, Michigan.",
+      "step3_answer": "Montmorency County",
+      "model_answer": "DeKalb (borders Fulton County, which contains Atlanta, Georgia)",
+      "model_reasoning": "The model correctly stayed in Georgia after establishing the state in Step 1."
+    }
+  }
+]
