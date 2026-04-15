@@ -161,7 +161,7 @@ function mean(arr: number[]): number {
 function aggregateByKey(
   results: QAResult[],
   keyFn: (r: QAResult) => string,
-): Record<string, { count: number; f1: number; em: number; recall: number }> {
+): Record<string, { count: number; f1: number; em: number; accuracy: number; recall: number }> {
   const groups = new Map<string, QAResult[]>();
   for (const r of results) {
     const key = keyFn(r);
@@ -169,12 +169,13 @@ function aggregateByKey(
     arr.push(r);
     groups.set(key, arr);
   }
-  const out: Record<string, { count: number; f1: number; em: number; recall: number }> = {};
+  const out: Record<string, { count: number; f1: number; em: number; accuracy: number; recall: number }> = {};
   for (const [key, group] of groups) {
     out[key] = {
       count: group.length,
       f1: mean(group.map((r) => r.f1)),
       em: mean(group.map((r) => r.em)),
+      accuracy: mean(group.map((r) => r.accuracy)),
       recall: mean(group.map((r) => r.retrievalRecall)),
     };
   }
@@ -191,9 +192,22 @@ async function main() {
   // Load dev questions (seeded random sample for reproducible multi-hop coverage)
   const lines = readFileSync(DEV_PATH, "utf-8").trim().split("\n");
   const allQuestions: MuSiQueQuestion[] = lines.map((l) => JSON.parse(l));
-  let questions = sampleQuestions(allQuestions, maxSamples);
-  if (hopsFilter !== null) {
-    questions = questions.filter((q) => (q.question_decomposition?.length ?? 0) === hopsFilter);
+  // Load known dataset errors to exclude
+  const ERRORS_PATH = "results/dataset-errors.json";
+  let errorIds = new Set<string>();
+  try {
+    errorIds = new Set(
+      (JSON.parse(readFileSync(ERRORS_PATH, "utf-8")) as Array<{ questionId: string }>).map((e) => e.questionId),
+    );
+  } catch {}
+
+  // Over-sample then filter to get the target number of good questions
+  const goodQuestions = sampleQuestions(allQuestions, allQuestions.length)
+    .filter((q) => !errorIds.has(q.id))
+    .filter((q) => hopsFilter === null || (q.question_decomposition?.length ?? 0) === hopsFilter);
+  let questions = goodQuestions.slice(0, maxSamples);
+  if (errorIds.size > 0) {
+    console.log(`Excluded ${errorIds.size} known dataset errors.`);
   }
 
   const hopsLabel = hopsFilter !== null ? ` (${hopsFilter}-hop only)` : "";
@@ -214,7 +228,7 @@ async function main() {
 
   // Answer all questions
   const allResults: QAResult[] = new Array(questions.length);
-  const CONCURRENCY = EVAL_MODE === "tool" ? 4 : 50;
+  const CONCURRENCY = EVAL_MODE === "tool" ? 10 : 50;
 
   console.log(`Answering ${questions.length} questions...`);
   let t0 = performance.now();
@@ -272,6 +286,7 @@ async function main() {
             numToolCalls,
             toolCalls,
             retrievalRecall,
+            accuracy: 0,
           };
 
           completed++;
@@ -301,6 +316,56 @@ async function main() {
   for (let i = 0; i < allResults.length; i++) {
     allResults[i]!.f1 = scores[i]!.f1;
     allResults[i]!.em = scores[i]!.em;
+    allResults[i]!.accuracy = scores[i]!.em; // default: EM=1 → accuracy=1
+  }
+
+  // LLM-as-judge for non-exact-match answers
+  const nonEM = allResults.filter((r) => r.em === 0 && r.prediction.length > 0);
+  if (nonEM.length > 0) {
+    console.log(`Judging ${nonEM.length} non-exact-match answers...`);
+    t0 = performance.now();
+    const JUDGE_CONCURRENCY = 10;
+    for (let b = 0; b < nonEM.length; b += JUDGE_CONCURRENCY) {
+      const batch = nonEM.slice(b, b + JUDGE_CONCURRENCY);
+      await Promise.all(
+        batch.map(async (r) => {
+          const judgePrompt = `You are a helpful research assistant. Your task is to evaluate an LLM's answer against a ground-truth answer and decide whether the ground-truth content is present in the model's response.
+
+Instructions:
+1. Carefully compare the Predicted Answer with the Ground-Truth Answer.
+2. Judge based on substance and equivalence of meaning; do not require identical wording unless wording is crucial to meaning.
+3. Make a binary decision on whether the vital facts of the ground-truth are contained in the predicted answer.
+
+Input Data:
+Question: ${r.question}
+Predicted Answer: ${r.prediction}
+Ground-Truth Answer: ${r.answer}
+
+Output Format:
+Provide your final evaluation in the following format:
+Explanation: <brief rationale for the decision>
+Decision: <yes|no>
+
+Output:`;
+          try {
+            const proc = Bun.spawn(
+              ["claude", "-p", judgePrompt, "--model", "haiku"],
+              { stdout: "pipe", stderr: "pipe" },
+            );
+            const timeout = setTimeout(() => proc.kill(), 30_000);
+            const stdout = await new Response(proc.stdout).text();
+            await proc.exited;
+            clearTimeout(timeout);
+            const decision = /Decision:\s*yes/i.test(stdout);
+            r.accuracy = decision ? 1 : 0;
+          } catch {
+            r.accuracy = 0;
+          }
+        }),
+      );
+    }
+    const judgeTime = ((performance.now() - t0) / 1000).toFixed(1);
+    console.log(`Judging complete (${judgeTime}s)\n`);
   }
 
   // Compute aggregates
@@ -312,13 +377,14 @@ async function main() {
   console.log("By Hop Count:");
   for (const [hops, stats] of Object.entries(byHops).sort((a, b) => Number(a[0]) - Number(b[0]))) {
     console.log(
-      `  ${hops}-hop: F1=${stats.f1.toFixed(3)} EM=${stats.em.toFixed(3)} Recall=${stats.recall.toFixed(3)} (n=${stats.count})`,
+      `  ${hops}-hop: F1=${stats.f1.toFixed(3)} EM=${stats.em.toFixed(3)} Acc=${stats.accuracy.toFixed(3)} Recall=${stats.recall.toFixed(3)} (n=${stats.count})`,
     );
   }
   const avgToolCalls = mean(allResults.map((r) => r.numToolCalls));
   const avgRecall = mean(allResults.map((r) => r.retrievalRecall));
+  const overallAcc = mean(allResults.map((r) => r.accuracy));
   console.log(
-    `\nOverall: F1=${overallF1.toFixed(3)} EM=${overallEM.toFixed(3)} Recall=${avgRecall.toFixed(3)} (${allResults.length} questions, avg ${avgToolCalls.toFixed(1)} tool calls)\n`,
+    `\nOverall: F1=${overallF1.toFixed(3)} EM=${overallEM.toFixed(3)} Acc=${overallAcc.toFixed(3)} Recall=${avgRecall.toFixed(3)} (${allResults.length} questions, avg ${avgToolCalls.toFixed(1)} tool calls)\n`,
   );
 
   // Build eval run

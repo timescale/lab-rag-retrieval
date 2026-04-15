@@ -15,7 +15,7 @@
     }
   },
   {
-    "questionId": "4hop2__638706_765799_282674_759393",
+    "questionId": "4hop1__473563_309800_355213_203322",
     "question": "Which county shares border with the county having the birth city of the director of Let the Good Times Roll?",
     "expectedAnswer": "Cabarrus County",
     "issue": "Same entity name collision — Cleveland, Ohio vs Cleveland, North Carolina",
@@ -30,7 +30,7 @@
     }
   },
   {
-    "questionId": "4hop2__55764_65539_34770_26556",
+    "questionId": "4hop1__60000_59747_211319_557671",
     "question": "What county borders the county with the largest city in the state where Birth of a Nation was filmed?",
     "expectedAnswer": "Presque Isle County",
     "issue": "Entity name collision — Atlanta, Georgia vs Atlanta, Michigan",
