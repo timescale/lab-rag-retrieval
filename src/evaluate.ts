@@ -201,13 +201,15 @@ async function main() {
     );
   } catch {}
 
-  // Over-sample then filter to get the target number of good questions
+  // Over-sample to get target count after filtering dataset errors, then apply hop filter
   const goodQuestions = sampleQuestions(allQuestions, allQuestions.length)
-    .filter((q) => !errorIds.has(q.id))
-    .filter((q) => hopsFilter === null || (q.question_decomposition?.length ?? 0) === hopsFilter);
+    .filter((q) => !errorIds.has(q.id));
   let questions = goodQuestions.slice(0, maxSamples);
   if (errorIds.size > 0) {
     console.log(`Excluded ${errorIds.size} known dataset errors.`);
+  }
+  if (hopsFilter !== null) {
+    questions = questions.filter((q) => (q.question_decomposition?.length ?? 0) === hopsFilter);
   }
 
   const hopsLabel = hopsFilter !== null ? ` (${hopsFilter}-hop only)` : "";
