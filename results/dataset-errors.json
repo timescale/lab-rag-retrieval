@@ -43,5 +43,19 @@
       "model_answer": "DeKalb (borders Fulton County, which contains Atlanta, Georgia)",
       "model_reasoning": "The model correctly stayed in Georgia after establishing the state in Step 1."
     }
+  },
+  {
+    "questionId": "2hop__57638_72467",
+    "question": "What team picked the highest point average holder in NBA history in the NBA draft?",
+    "expectedAnswer": "Seattle SuperSonics",
+    "issue": "Wrong answer extraction — all-time record holder vs active player record holder",
+    "reasoning": "The question asks for 'the highest point average holder in NBA history.' The supporting paragraph states Wilt Chamberlain holds the all-time record (50.4 PPG). The expected answer 'Kevin Durant' is described as having the highest average 'among active players,' not in NBA history. The question chain then follows Durant to the Seattle SuperSonics draft pick, but the correct all-time answer would be Chamberlain.",
+    "evidence": {
+      "step1_paragraph": "Wilt Chamberlain holds the all-time records for total points scored (4,029) and points per game (50.4) in a season... Among active players, Kevin Durant has the highest point total (2,593) and the highest scoring average (32.0) in a season.",
+      "step1_answer": "Kevin Durant",
+      "step1_correct_answer": "Wilt Chamberlain (all-time) or Kevin Durant (active players only)",
+      "model_answer": "Chicago Bulls",
+      "model_reasoning": "Model may have followed a different player entirely due to ambiguity in the question."
+    }
   }
 ]
