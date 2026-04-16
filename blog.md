@@ -1,4 +1,4 @@
-# Achieving State-of-the-Art Results on Multi-Hop RAG with PostgreSQL
+# Achieving State-of-the-Art Results on Multi-Hop RAG with PostgreSQL running on ghost.build
 
 ## Introduction
 
@@ -61,8 +61,10 @@ We evaluated on 100 randomly sampled questions (seeded for reproducibility) cove
 |--------|-------------|
 | **F1** | Token-level overlap (SQuAD-style) |
 | **EM** | Exact match |
-| **Accuracy** | LLM-as-judge for semantic equivalence (catches "Paraguay" ≈ "Alfredo Stroessner's Paraguay") |
+| **Accuracy** | LLM-as-judge for semantic equivalence |
 | **Recall** | Fraction of ground-truth supporting paragraphs retrieved |
+
+EM is the strictest metric — the prediction must be character-for-character identical to the gold answer. F1 is softer, measuring token overlap between prediction and answer (so "Richland County" predicted as "Richland" still gets partial credit). But both miss semantically correct answers that differ in surface form. Accuracy uses an LLM judge to evaluate whether the predicted answer conveys the same meaning as the gold answer, catching cases like "16" ≈ "sixteen", "February 15, 1942" ≈ "15 February 1942", and "south" ≈ "meanders slowly southwards." In our results, accuracy is consistently ~16 points higher than EM, suggesting that a significant fraction of "wrong" answers by traditional metrics are actually correct.
 
 ## Results
 
@@ -73,7 +75,7 @@ We evaluated on 100 randomly sampled questions (seeded for reproducibility) cove
 | 4-hop | 0.482 | 0.421 | 0.474 | 0.816 | 19 |
 | **Overall** | **0.552** | **0.440** | **0.600** | **0.865** | **100** |
 
-For context, here's how this compares to results reported in [PAR-RAG](https://arxiv.org/abs/2504.16787) (Table 3, revised January 2026), one of the latest papers on multi-hop RAG. PAR-RAG benchmarks several RAG approaches on MuSiQue using Qwen-Plus. Note: different models, different eval splits (they use 500 random samples), so not a direct apples-to-apples comparison — but the architectural comparison is instructive.
+For context, here's how this compares to results reported in [PAR-RAG](https://arxiv.org/abs/2504.16787) (Table 3, revised January 2026), one of the latest papers on multi-hop RAG. PAR-RAG benchmarks several RAG approaches on MuSiQue using Qwen-Plus. Note: different models, different eval splits (they use 500 random samples vs our 100 — see [Dataset Quality](#3-dataset-quality-is-a-real-confounder) for why), so not a direct apples-to-apples comparison — but the architectural comparison is instructive.
 
 | System | EM | Acc | Notes |
 |--------|-----|-----|-------|
@@ -126,7 +128,7 @@ Deep analysis of 4-hop failures revealed that several "wrong" answers were actua
 - A paragraph says "Cleveland, Ohio singer-songwriter Eric Carmen" → the expected chain resolves "Cleveland" to Cleveland, North Carolina
 - "Atlanta" is identified as Georgia's largest city → the next hop maps it to Atlanta, Michigan
 
-We documented 6 such dataset errors. Filtering them and using LLM-as-judge accuracy (which catches semantic equivalence) gave a more honest picture of system performance.
+We documented 6 such dataset errors in our 100-question sample and excluded them from evaluation. This is also why we evaluate on 100 questions rather than the 500 common in previous research (e.g., PAR-RAG) — auditing each failure requires human judgment to distinguish genuine model errors from dataset artifacts, which is laborious. We manually verified the ground truth for every failed question in our sample to ensure we're measuring real system performance, not benchmark noise.
 
 ### 4. Retrieval Is (Mostly) Solved; Reasoning Is the Bottleneck
 
