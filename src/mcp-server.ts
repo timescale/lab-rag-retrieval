@@ -76,13 +76,23 @@ server.tool(
         timings.embed_ms = Math.round(performance.now() - tEmbed);
         const vec = `[${queryEmbedding!.join(",")}]`;
         const tSem = performance.now();
+        // Build semantic filter clause with param indices offset by 2 (after $1=vec, $2=limit)
+        const semFilters = [];
+        const semFilterValues: unknown[] = [];
+        let semParamIdx = 3;
+        if (hasGrep) {
+          semFilters.push(`content ~* $${semParamIdx}`);
+          semFilterValues.push(params.grep);
+          semParamIdx++;
+        }
+        const semFilterClause = semFilters.length > 0 ? " AND " + semFilters.join(" AND ") : "";
         const sem = await sql.unsafe<Array<{ id: string }>>(
           `SELECT id FROM ${TABLE_NAME}
            WHERE embedding IS NOT NULL
-             AND (embedding <=> $1::halfvec) < 1.0${filterClause}
+             AND (embedding <=> $1::halfvec) < 1.0${semFilterClause}
            ORDER BY (embedding <=> $1::halfvec) ASC, created_at DESC
            LIMIT $2`,
-          [vec, candidateLimit, ...filterValues] as any[],
+          [vec, candidateLimit, ...semFilterValues] as any[],
         );
         timings.semantic_ms = Math.round(performance.now() - tSem);
         semanticResults.push(...sem);
@@ -145,29 +155,6 @@ server.tool(
         text: (lines.length > 0 ? lines.join("\n") : "No results found.") + `\n[timing: ${timingStr}]`,
       }],
     };
-  },
-);
-
-// ---------------------------------------------------------------------------
-// me_memory_get
-// ---------------------------------------------------------------------------
-
-server.tool(
-  "me_memory_get",
-  `Retrieve a single memory by its ID. Returns the full paragraph content.`,
-  {
-    id: z.string().describe("The UUID of the memory"),
-  },
-  async ({ id }) => {
-    const rows = await sql`
-      SELECT id, content
-      FROM ${TABLE_NAME} WHERE id = ${id}::uuid
-    `;
-    if (rows.length === 0) {
-      return { content: [{ type: "text" as const, text: "Memory not found" }] };
-    }
-
-    return { content: [{ type: "text" as const, text: rows[0]!.content as string }] };
   },
 );
 

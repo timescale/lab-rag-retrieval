@@ -70,7 +70,7 @@ const MCP_CONFIG = JSON.stringify({
   },
 });
 
-const MCP_TOOLS = "mcp__recall__me_memory_search,mcp__recall__me_memory_get";
+const MCP_TOOLS = "mcp__recall__me_memory_search";
 
 const TIMEOUT_MS = 240_000;
 const MAX_RETRIES = 2;
@@ -231,7 +231,7 @@ async function main() {
 
   // Answer all questions
   const allResults: QAResult[] = new Array(questions.length);
-  const CONCURRENCY = EVAL_MODE === "tool" ? 10 : 50;
+  const CONCURRENCY = EVAL_MODE === "tool" ? 5 : 50;
 
   console.log(`Answering ${questions.length} questions...`);
   let t0 = performance.now();

@@ -21,3 +21,6 @@
 {"timestamp":"2026-04-15T10:58:37.098Z","f1":0.5552,"em":0.44,"questions":100,"mode":"tool","description":"baseline with accuracy + error filter","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-15T11:41:19.377Z","f1":0.3947,"em":0.3684,"questions":19,"mode":"tool","description":"4-hop clean (6 errors filtered)","memory_ts_hash":"1a4c6a463978"}
 {"timestamp":"2026-04-15T13:09:40.974Z","f1":0.5631,"em":0.45,"questions":100,"mode":"tool","description":"baseline clean (6 errors filtered)","memory_ts_hash":"1a4c6a463978"}
+{"timestamp":"2026-04-15T14:50:25.253Z","f1":0.1504,"em":0.13,"questions":100,"mode":"tool","description":"simplified schema + no me_memory_get","memory_ts_hash":"6408b61f40a5"}
+{"timestamp":"2026-04-15T19:57:54.049Z","f1":0.5331,"em":0.42,"questions":100,"mode":"tool","description":"simplified schema fixed","memory_ts_hash":"6408b61f40a5"}
+{"timestamp":"2026-04-15T21:32:48.268Z","f1":0.5517,"em":0.44,"questions":100,"mode":"tool","description":"simplified schema, concurrency 5","memory_ts_hash":"6408b61f40a5"}
