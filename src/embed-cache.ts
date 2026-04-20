@@ -23,18 +23,58 @@ function saveCache(key: string, embeddings: number[][]): void {
   writeFileSync(`${EMBEDDING_CACHE_DIR}/${key}.json`, JSON.stringify(embeddings));
 }
 
+// Approximate tokens as chars / 2 for batch packing (pessimistic — LaTeX/code
+// tokenize into many short tokens). For single-doc limit we use chars/3 since
+// real English/LaTeX ratio is ~3-4, and we want to only error on truly long docs.
+const CHARS_PER_TOKEN_BATCH = 2;
+const CHARS_PER_TOKEN_DOC = 3;
+const MAX_TOKENS_PER_BATCH = 200_000;
+const MAX_TOKENS_PER_DOC = 8000;
+const MAX_CHARS_PER_DOC = MAX_TOKENS_PER_DOC * CHARS_PER_TOKEN_DOC;
+
+function assertDocFits(text: string, idx: number): void {
+  if (text.length > MAX_CHARS_PER_DOC) {
+    throw new Error(
+      `Document at index ${idx} is ${text.length} chars (> ${MAX_CHARS_PER_DOC} = ~${MAX_TOKENS_PER_DOC} tokens). ` +
+        `Exceeds text-embedding-3-small 8191-token limit. Preview: ${text.slice(0, 200)}...`,
+    );
+  }
+}
+
+/** Pack texts into batches respecting both count limit and token limit. */
+function packBatches(texts: string[], batchSize: number): string[][] {
+  const batches: string[][] = [];
+  let current: string[] = [];
+  let currentTokens = 0;
+  for (const t of texts) {
+    const tokens = Math.ceil(t.length / CHARS_PER_TOKEN_BATCH);
+    if (current.length >= batchSize || currentTokens + tokens > MAX_TOKENS_PER_BATCH) {
+      if (current.length > 0) {
+        batches.push(current);
+        current = [];
+        currentTokens = 0;
+      }
+    }
+    current.push(t);
+    currentTokens += tokens;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
 export async function embedWithCache(
   texts: string[],
   embedFn: (batch: string[]) => Promise<number[][]>,
   batchSize: number,
   cachePrefix: string,
 ): Promise<number[][]> {
+  texts.forEach(assertDocFits);
+  const batches = packBatches(texts, batchSize);
   const all: number[][] = [];
   let cached = 0;
   let fetched = 0;
 
-  for (let i = 0; i < texts.length; i += batchSize) {
-    const batch = texts.slice(i, i + batchSize);
+  for (const batch of batches) {
     const key = batchCacheKey(cachePrefix, batch);
     const hit = loadCached(key);
     if (hit) {
