@@ -1,9 +1,27 @@
-// File-based embedding cache, keyed on cachePrefix (e.g. model name) + exact content.
+// File-based embedding cache with exact token-aware batching.
+//
+// Uses js-tiktoken to count tokens exactly (cl100k_base encoding used by
+// text-embedding-3-small). This avoids brittle chars/token heuristics that
+// were tripping over LaTeX, code, and long docs.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { getEncoding, type Tiktoken } from "js-tiktoken";
 
 const EMBEDDING_CACHE_DIR = "data/embedding_cache";
+
+// Hard limits from OpenAI:
+// - Per-request total: 300k tokens
+// - Per-document:       8191 tokens (text-embedding-3-small)
+const MAX_TOKENS_PER_BATCH = 290_000; // leave small headroom
+const MAX_TOKENS_PER_DOC = 8000;      // leave small headroom
+
+// Lazily initialize encoding (loading the BPE tables isn't free).
+let _enc: Tiktoken | null = null;
+function enc(): Tiktoken {
+  if (!_enc) _enc = getEncoding("cl100k_base");
+  return _enc;
+}
 
 function batchCacheKey(cachePrefix: string, texts: string[]): string {
   const h = createHash("sha256");
@@ -23,46 +41,48 @@ function saveCache(key: string, embeddings: number[][]): void {
   writeFileSync(`${EMBEDDING_CACHE_DIR}/${key}.json`, JSON.stringify(embeddings));
 }
 
-// Approximate tokens as chars / 2 for batch packing (pessimistic — LaTeX/code
-// tokenize into many short tokens). For single-doc limit we use chars/3 since
-// real English/LaTeX ratio is ~3-4, and we want to only error on truly long docs.
-const CHARS_PER_TOKEN_BATCH = 2;
-const CHARS_PER_TOKEN_DOC = 3.5;
-const MAX_TOKENS_PER_BATCH = 200_000;
-const MAX_TOKENS_PER_DOC = 8000;
-const MAX_CHARS_PER_DOC = MAX_TOKENS_PER_DOC * CHARS_PER_TOKEN_DOC;
+/** Truncate text to at most maxTokens tokens (exact, via tiktoken). */
+function truncateToTokens(text: string, maxTokens: number): string {
+  const tokens = enc().encode(text);
+  if (tokens.length <= maxTokens) return text;
+  return enc().decode(tokens.slice(0, maxTokens));
+}
 
-/** Truncate overlong docs with a warning. */
-function truncateIfNeeded(texts: string[]): string[] {
+/** Ensure every doc fits the per-doc token limit, truncating if needed. */
+function truncateOverlong(texts: string[]): { safe: string[]; truncated: number; maxOriginal: number } {
   let truncated = 0;
   let maxOriginal = 0;
-  const out = texts.map((t) => {
-    if (t.length > MAX_CHARS_PER_DOC) {
+  const safe = texts.map((t) => {
+    const tokens = enc().encode(t);
+    if (tokens.length > MAX_TOKENS_PER_DOC) {
       truncated++;
-      if (t.length > maxOriginal) maxOriginal = t.length;
-      return t.slice(0, MAX_CHARS_PER_DOC);
+      if (tokens.length > maxOriginal) maxOriginal = tokens.length;
+      return enc().decode(tokens.slice(0, MAX_TOKENS_PER_DOC));
     }
     return t;
   });
-  if (truncated > 0) {
-    console.log(`  Truncated ${truncated}/${texts.length} docs to ${MAX_CHARS_PER_DOC} chars (max was ${maxOriginal})`);
-  }
-  return out;
+  return { safe, truncated, maxOriginal };
 }
 
-/** Pack texts into batches respecting both count limit and token limit. */
-function packBatches(texts: string[], batchSize: number): string[][] {
+/** Pack texts into batches respecting count limit and exact token limit. */
+function packBatches(
+  texts: string[],
+  tokenCounts: number[],
+  batchSize: number,
+): string[][] {
   const batches: string[][] = [];
   let current: string[] = [];
   let currentTokens = 0;
-  for (const t of texts) {
-    const tokens = Math.ceil(t.length / CHARS_PER_TOKEN_BATCH);
-    if (current.length >= batchSize || currentTokens + tokens > MAX_TOKENS_PER_BATCH) {
-      if (current.length > 0) {
-        batches.push(current);
-        current = [];
-        currentTokens = 0;
-      }
+  for (let i = 0; i < texts.length; i++) {
+    const t = texts[i]!;
+    const tokens = tokenCounts[i]!;
+    if (
+      current.length >= batchSize ||
+      (current.length > 0 && currentTokens + tokens > MAX_TOKENS_PER_BATCH)
+    ) {
+      batches.push(current);
+      current = [];
+      currentTokens = 0;
     }
     current.push(t);
     currentTokens += tokens;
@@ -77,8 +97,18 @@ export async function embedWithCache(
   batchSize: number,
   cachePrefix: string,
 ): Promise<number[][]> {
-  const safe = truncateIfNeeded(texts);
-  const batches = packBatches(safe, batchSize);
+  // Step 1: truncate any doc that exceeds per-doc token limit.
+  const { safe, truncated, maxOriginal } = truncateOverlong(texts);
+  if (truncated > 0) {
+    console.log(
+      `  Truncated ${truncated}/${texts.length} docs to ${MAX_TOKENS_PER_DOC} tokens (max was ${maxOriginal})`,
+    );
+  }
+
+  // Step 2: compute exact token counts once and pack batches.
+  const tokenCounts = safe.map((t) => enc().encode(t).length);
+  const batches = packBatches(safe, tokenCounts, batchSize);
+
   const all: number[][] = [];
   let cached = 0;
   let fetched = 0;
