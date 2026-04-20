@@ -41,3 +41,18 @@ For context, BRIGHT SOTA is ~22 nDCG@10 overall. Pony is a code-focused domain (
 **Result**: 3.75x improvement. The concept-based prompt dramatically improved retrieval by guiding the agent to search for language features rather than problem keywords. Tool calls increased from 4→10, indicating the agent is exploring more thoroughly.
 
 **Decision**: Adopted.
+
+---
+
+## Full Pony Eval — 112 queries (2026-04-20)
+
+Ran the concept-based prompt on the complete pony test set (112 queries). Also discovered + fixed a bug where running `setup:bright` for multiple domains wiped the shared `bright_corpus` table; refactored to per-domain tables (`bright_pony`, `bright_biology`, etc.).
+
+| Metric | Value |
+|--------|-------|
+| nDCG@10 | **0.409** |
+| Avg tool calls | 10.2 |
+| Queries | 112 |
+| Time | 1368s (~23 min) |
+
+Very close to the 20-query quick result (0.428), confirming the concept prompt generalizes. For context, published BRIGHT SOTA is ~22 nDCG@10 overall; we're at 40.9 on pony.

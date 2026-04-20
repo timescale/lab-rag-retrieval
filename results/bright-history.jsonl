@@ -1,2 +1,4 @@
 {"timestamp":"2026-04-20T10:08:50.080Z","domain":"pony","ndcg10":0.1142,"queries":20,"description":""}
 {"timestamp":"2026-04-20T10:18:11.772Z","domain":"pony","ndcg10":0.4284,"queries":20,"description":"concept-based prompt"}
+{"timestamp":"2026-04-20T10:33:35.966Z","domain":"pony","ndcg10":0.0603,"queries":112,"description":"concept prompt full run"}
+{"timestamp":"2026-04-20T12:03:28.878Z","domain":"pony","ndcg10":0.4087,"queries":112,"description":"per-domain tables full run"}
