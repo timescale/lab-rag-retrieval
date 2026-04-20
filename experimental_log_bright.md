@@ -56,3 +56,38 @@ Ran the concept-based prompt on the complete pony test set (112 queries). Also d
 | Time | 1368s (~23 min) |
 
 Very close to the 20-query quick result (0.428), confirming the concept prompt generalizes. For context, published BRIGHT SOTA is ~22 nDCG@10 overall; we're at 40.9 on pony.
+
+---
+
+## Cross-Domain Baselines (2026-04-20)
+
+Ran the concept prompt across multiple domains to see how well it generalizes:
+
+| Domain | nDCG@10 | Queries | Avg Tools | Time |
+|--------|---------|---------|-----------|------|
+| pony | 0.409 | 112 | 10.2 | 23 min |
+| theoremqa_theorems | 0.512 | 76 | 9.0 | 18 min |
+| economics | 0.351 | 103 | 9.1 | 30 min |
+| psychology | 0.472 | 101 | 8.6 | 27 min |
+| **Mean** | **0.436** | 392 | 9.2 | — |
+
+All four domains well above published BRIGHT SOTA of ~22 nDCG@10. The concept prompt generalizes — it works even though it's code-specific in wording.
+
+---
+
+## Experiment 2: Domain-aware prompts (2026-04-20) — rejected
+
+**Hypothesis**: The concept prompt's coding-specific wording ("LANGUAGE FEATURES", "API functions", "tutorials") might mislead the agent on QA domains like economics. A domain-aware variant that splits prompts by domain type (code/math vs QA) should help.
+
+**Change**: Added `buildPromptBrightTechnical()` (for pony/leetcode/aops/theoremqa) and `buildPromptBrightQA()` (for biology/economics/etc.). The QA variant framed retrieval as "find articles addressing the question" rather than "find techniques to solve it".
+
+**Testing**: Re-ran economics with the QA prompt.
+
+| Metric | Concept prompt | QA prompt | Delta |
+|--------|---------------|-----------|-------|
+| nDCG@10 | 0.351 | 0.332 | -0.019 |
+| Avg tool calls | 9.1 | 9.2 | +0.1 |
+
+**Result**: Slight regression. The QA framing, despite being more "fitting" to the corpus, actually performs worse. The concept prompt's stronger instructions ("identify techniques, search for each separately, do 5-6 searches") seem to drive better behavior regardless of domain.
+
+**Decision**: Reverted. Keep the single concept prompt across all domains.

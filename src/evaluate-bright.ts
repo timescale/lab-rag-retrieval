@@ -208,7 +208,7 @@ async function main() {
       const ex = examples[qi]!;
       promises.push(
         (async () => {
-          const prompt = buildPromptBright(ex.query);
+          const prompt = buildPromptBright(ex.query, domain);
           const result = await askClaude(prompt, mcpConfig);
 
           // Filter out excluded IDs

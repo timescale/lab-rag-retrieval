@@ -299,7 +299,7 @@ Short answer:`;
 // -- BRIGHT Prompt -----------------------------------------------------------
 // AUTORESEARCH: This prompt is modifiable by the research loop.
 
-export function buildPromptBright(query: string): string {
+export function buildPromptBright(query: string, _domain: string): string {
   return `You have access to a search tool to find relevant documents in a corpus of programming language documentation, tutorials, and source code.
 
 Your task: find documents that would help someone solve the problem described in the query below. Think about what CONCEPTS, LANGUAGE FEATURES, and TECHNIQUES are needed — don't just search for keywords from the problem statement.

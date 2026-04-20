@@ -2,3 +2,7 @@
 {"timestamp":"2026-04-20T10:18:11.772Z","domain":"pony","ndcg10":0.4284,"queries":20,"description":"concept-based prompt"}
 {"timestamp":"2026-04-20T10:33:35.966Z","domain":"pony","ndcg10":0.0603,"queries":112,"description":"concept prompt full run"}
 {"timestamp":"2026-04-20T12:03:28.878Z","domain":"pony","ndcg10":0.4087,"queries":112,"description":"per-domain tables full run"}
+{"timestamp":"2026-04-20T12:29:22.394Z","domain":"theoremqa_theorems","ndcg10":0.5115,"queries":76,"description":"baseline concept prompt"}
+{"timestamp":"2026-04-20T13:15:34.560Z","domain":"economics","ndcg10":0.3506,"queries":103,"description":"baseline concept prompt"}
+{"timestamp":"2026-04-20T13:43:06.698Z","domain":"psychology","ndcg10":0.4721,"queries":101,"description":"baseline concept prompt"}
+{"timestamp":"2026-04-20T14:46:19.843Z","domain":"economics","ndcg10":0.3319,"queries":103,"description":"QA-style prompt"}
