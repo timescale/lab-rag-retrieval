@@ -231,13 +231,26 @@ Also removed the "no explanations" constraint to let the agent write deliberatio
 | Haiku | ~0.28-0.35 (high run-to-run variance) |
 | Sonnet | **0.515** |
 
-### Context
+### Context — Corrected
 
-Published BRIGHT SOTA is approximately **0.22** across the full benchmark. All four of our Haiku domain scores beat that by 1.6-2.3x, using:
-- Claude Haiku as the agent
-- Postgres with HNSW + BM25 (pg_textsearch)
-- Single MCP tool for hybrid search
-- Concept-based prompt (decomposition variant for economics)
+The [BRIGHT leaderboard](https://brightbenchmark.github.io/) has advanced a lot since the original paper (~0.22). Current top systems:
+
+| Rank | System | Overall nDCG@10 | Date |
+|------|--------|-----------------|------|
+| 1 | INF-X-Retriever | 63.4 | Dec 2025 |
+| 2 | RakanEmbed4B | 52.4 | Mar 2026 |
+| 3 | NeMo Retriever (agentic) | 50.9 | Mar 2026 |
+| 4 | DIVER-v3-GroupRank | 46.8 | Nov 2025 |
+| 5 | BGE-Reasoner-0928 | 46.4 | Oct 2025 |
+
+Our 4-domain mean (0.439) would place roughly 5th-7th overall **if** the unevaluated 8 domains score similarly. They likely don't — we haven't run the hard domains (leetcode, aops, theoremqa_questions) or stackoverflow/biology/earth_science/robotics/sustainable_living. The top leaderboard entries use specialized retrievers tuned for reasoning retrieval, while we're using general-purpose Claude Haiku + hybrid Postgres search.
+
+### What we can claim
+
+- Respectable mid-tier leaderboard performance on 4 evaluated domains (0.439 mean) using a **general-purpose LLM + off-the-shelf Postgres** setup
+- Sonnet on economics quick (0.515) suggests upgrading the model could push us into the top-tier range
+- Easy of iteration: ~30 min per domain run on Haiku, no model training required
+- Reproducible: single Postgres table per domain, one MCP tool, deterministic seed
 
 ### Takeaways
 
