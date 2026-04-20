@@ -41,13 +41,6 @@ function saveCache(key: string, embeddings: number[][]): void {
   writeFileSync(`${EMBEDDING_CACHE_DIR}/${key}.json`, JSON.stringify(embeddings));
 }
 
-/** Truncate text to at most maxTokens tokens (exact, via tiktoken). */
-function truncateToTokens(text: string, maxTokens: number): string {
-  const tokens = enc().encode(text);
-  if (tokens.length <= maxTokens) return text;
-  return enc().decode(tokens.slice(0, maxTokens));
-}
-
 /** Ensure every doc fits the per-doc token limit, truncating if needed. */
 function truncateOverlong(texts: string[]): { safe: string[]; truncated: number; maxOriginal: number } {
   let truncated = 0;
