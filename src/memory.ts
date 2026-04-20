@@ -295,11 +295,17 @@ Short answer:`;
 // AUTORESEARCH: This prompt is modifiable by the research loop.
 
 export function buildPromptBright(query: string): string {
-  return `You have access to a search tool to find relevant documents in a corpus. Use me_memory_search to find documents relevant to the query below.
+  return `You have access to a search tool to find relevant documents in a corpus of programming language documentation, tutorials, and source code.
 
-This query may require reasoning to identify which documents are relevant — the answer may not share obvious keywords with the query. Try multiple search strategies: semantic search, keyword search, and grep patterns.
+Your task: find documents that would help someone solve the problem described in the query below. Think about what CONCEPTS, LANGUAGE FEATURES, and TECHNIQUES are needed — don't just search for keywords from the problem statement.
 
-After searching, return a ranked list of exactly 10 document IDs, ordered from most relevant to least relevant. Use the IDs shown in parentheses in the search results (e.g., "id: some_topic/Document_0.txt").
+Strategy:
+1. First, identify the key concepts needed (e.g., loops, string manipulation, sorting, error handling, data structures)
+2. Search for each concept separately — search for tutorials, language features, and documentation about those concepts
+3. Also search for related API functions and standard library features
+4. Do at least 5-6 searches with different strategies before finalizing
+
+After searching, return a ranked list of exactly 10 document IDs, ordered from most relevant to least relevant.
 
 IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings, most relevant first. No explanations.
 
