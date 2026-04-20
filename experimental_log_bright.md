@@ -413,3 +413,55 @@ nDCG trended worse (22 better / 34 worse queries, sign test p=0.14, not quite si
 ### Decision
 
 **Reverted.** Union's retrieval gain is not directionally significant (p=0.65), and nDCG trends worse. RRF's cross-mode agreement is load-bearing. The ranking bottleneck isn't solved by throwing more candidates at the agent.
+
+---
+
+## Experiment: Sonnet on full 103 economics (2026-04-20)
+
+### Hypothesis
+
+Prior Sonnet quick run (30 queries, no grep warn, no expansion) got 0.515 vs Haiku's ~0.28-0.35 — suggesting the model is a far larger lever than prompt tuning. We also argued that an off-the-shelf reranker would likely underperform Sonnet on BRIGHT because BRIGHT's gold requires *reasoning-based* bridging (e.g., DiD → synthetic control), not cross-encoder similarity. Test: run Sonnet on full 103 economics queries with current best Haiku setup (grep warning + expansion + RRF) and measure significance.
+
+### Change
+
+Added `--model` CLI flag to `evaluate-bright.ts` (default haiku). Ran with `--model sonnet`. No other changes.
+
+### Result (economics, full 103 queries, paired vs Haiku+same setup)
+
+| Metric | Haiku | Sonnet | Δ | Paired-t p | Sign test (better/worse/tied) | Sign-test p |
+|--------|-------|--------|---|-----------|-------------------------------|-------------|
+| **nDCG@10** | 0.358 | **0.462** | **+0.104** | **0.002** ★★ | 44 / 21 / 38 | **0.006** ★★ |
+| Retrieval recall | 0.569 | 0.640 | +0.071 | 0.040 ★ | 24 / 21 / 58 | 0.77 |
+| **Ranking recall** | 0.399 | **0.500** | **+0.101** | **0.005** ★★ | 34 / 11 / 58 | **0.0008** ★★★ |
+| Zero-gold queries | 20 | 17 | -3 | — | — | — |
+| Avg tool calls | 12.0 | 13.5 | +1.5 | — | — | — |
+| Wall time | 22 min | 36 min | +63% | — | — | — |
+
+Cross-check: Sonnet with grep+expansion vs Sonnet without (same 30-query subset) = 0.542 vs 0.515 (+0.027). Prompt gains hold on Sonnet too.
+
+### Analysis
+
+**Sonnet's gain is concentrated in ranking**, exactly matching the bottleneck we identified with instrumentation:
+
+- Ranking recall: 34 queries better vs 11 worse (sign-test p=0.0008 — very significant directionally). Sonnet reliably keeps gold in its top-10 that Haiku would drop.
+- Retrieval recall: magnitude up (+7.1pp, paired-t p=0.04) but direction flat (24/21, p=0.77). Same tool, same search strategies — retrieval-side gain comes from a few queries where Sonnet searches smarter, not systematic improvement across queries.
+- nDCG: +0.104 absolute (+29% relative), highly significant on both magnitude and direction.
+
+This is consistent with our prior argument: **on BRIGHT the ranking step benefits most from reasoning quality**, not a better retriever or a general cross-encoder. The adjacent-technique / alternate-vocabulary gold docs get *found* by expansion, but only a reasoning model recognizes them as the answer.
+
+Leaderboard context: 0.462 on economics alone would sit around 5th place (BGE-Reasoner 0.464, DIVER-v3 ~0.468). Top entries are 0.50+. Our overall mean on all 12 domains would need running to confirm, but on this single domain we're nearly at trained-reranker parity with off-the-shelf Claude + Postgres.
+
+### Decision
+
+**Sonnet is the best config we have**, but not a "keep or revert" decision like a code change — it's a cost/latency tradeoff:
+- Per-query: Sonnet ~21s vs Haiku ~13s (+63% wall time)
+- Cost per query: roughly 5-7x Haiku
+
+For the harness, keep Haiku as default (fast iteration) and use Sonnet for final runs to validate. The grep warning + expansion + RRF prompt stack is justified at both tiers.
+
+### Takeaways (updated)
+
+1. The ranking bottleneck is real, quantified, and responds primarily to model reasoning quality, not to retrieval volume, fusion algorithm, or prompt warnings.
+2. Expansion surfaces gold; the ranker is what converts it to nDCG. Match them together.
+3. Off-the-shelf general rerankers would likely hit the same "lexical similarity, no reasoning bridge" wall that Haiku hits. Model-as-reranker wins on this benchmark.
+4. Statistical rigor matters: we adopted expansion at nDCG -0.011 because retrieval recall was directionally significant (p=0.016), rejected union despite +0.038 retrieval because it was NOT (p=0.65). Sign-test vs paired-t disagreement flagged both cases correctly.

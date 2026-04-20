@@ -23,6 +23,7 @@ function parseArgs() {
   let samples = Infinity;
   let domain = "";
   let description = "";
+  let model = "haiku";
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--samples" && args[i + 1]) {
@@ -34,10 +35,13 @@ function parseArgs() {
     } else if (args[i] === "--desc" && args[i + 1]) {
       description = args[i + 1]!;
       i++;
+    } else if (args[i] === "--model" && args[i + 1]) {
+      model = args[i + 1]!;
+      i++;
     }
   }
 
-  return { samples, domain, description };
+  return { samples, domain, description, model };
 }
 
 // ---------------------------------------------------------------------------
@@ -73,10 +77,10 @@ interface ClaudeResult {
   retrievedIds: Set<string>;
 }
 
-async function askClaudeOnce(prompt: string, mcpConfig: string): Promise<ClaudeResult> {
+async function askClaudeOnce(prompt: string, mcpConfig: string, model: string): Promise<ClaudeResult> {
   const args = [
     "claude", "-p", prompt,
-    "--output-format", "json", "--verbose", "--model", "haiku",
+    "--output-format", "json", "--verbose", "--model", model,
     "--json-schema", JSON_SCHEMA,
     "--mcp-config", mcpConfig, "--strict-mcp-config",
     "--tools", MCP_TOOLS, "--allowedTools", MCP_TOOLS,
@@ -150,10 +154,10 @@ async function askClaudeOnce(prompt: string, mcpConfig: string): Promise<ClaudeR
   }
 }
 
-async function askClaude(prompt: string, mcpConfig: string): Promise<ClaudeResult> {
+async function askClaude(prompt: string, mcpConfig: string, model: string): Promise<ClaudeResult> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await askClaudeOnce(prompt, mcpConfig);
+      return await askClaudeOnce(prompt, mcpConfig, model);
     } catch (e: any) {
       if (attempt < MAX_RETRIES) {
         process.stderr.write(`  retry(${attempt + 1}) `);
@@ -180,7 +184,7 @@ function mean(arr: number[]): number {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const { samples: maxSamples, domain, description } = parseArgs();
+  const { samples: maxSamples, domain, description, model } = parseArgs();
 
   if (!domain) {
     console.error("--domain is required. E.g.: bun run eval:bright -- --domain pony");
@@ -227,7 +231,7 @@ async function main() {
       promises.push(
         (async () => {
           const prompt = buildPromptBright(ex.query, domain);
-          const result = await askClaude(prompt, mcpConfig);
+          const result = await askClaude(prompt, mcpConfig, model);
 
           // Filter out excluded IDs
           const excludedSet = new Set(ex.excluded_ids.filter((id) => id !== "N/A"));

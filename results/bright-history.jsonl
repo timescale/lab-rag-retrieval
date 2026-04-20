@@ -16,3 +16,4 @@
 {"timestamp":"2026-04-20T19:53:55.575Z","domain":"economics","ndcg10":0.3687,"queries":103,"description":"grep warning in prompt + tool desc (full 103)"}
 {"timestamp":"2026-04-20T20:33:58.211Z","domain":"economics","ndcg10":0.3584,"retrievalRecall":0.5689,"rankingRecall":0.3991,"queries":103,"description":"query expansion: brainstorm alt vocab before searching (generic)"}
 {"timestamp":"2026-04-20T21:13:38.261Z","domain":"economics","ndcg10":0.3406,"retrievalRecall":0.6072,"rankingRecall":0.3913,"queries":103,"description":"union of top-limit from each mode, no RRF"}
+{"timestamp":"2026-04-20T21:52:09.107Z","domain":"economics","ndcg10":0.4615,"retrievalRecall":0.6401,"rankingRecall":0.5004,"queries":103,"description":"sonnet + grep warning + expansion prompt (full 103)"}
