@@ -331,7 +331,52 @@ Two distinct failure modes:
 
 ### Next ideas
 
-- **Query expansion to adjacent vocabulary**: have the agent first generate alternative economics/domain terms, related techniques, and named concepts *before* searching. Addresses retrieval miss.
 - Test on Sonnet quick: grep warning should help more there since Sonnet used grep more
 - Consider removing grep from the tool entirely (option 1 from the discussion) as a simpler long-term solution
 - Consider making grep a soft rerank boost instead of a hard filter
+
+---
+
+## Experiment: Query expansion prompt for adjacent vocabulary (2026-04-20)
+
+### Hypothesis
+
+The retrieval-miss analysis on the grep-warning run showed 20% of economics queries retrieve zero gold docs, and inspection of 5 example misses revealed gold vocabulary in a *different lexical region* than the query (e.g., question about a technique → gold about an adjacent technique that solves the same problem; question using everyday phrasing → gold using formal academic terminology). Pure semantic + BM25 on the raw query cannot bridge these gaps.
+
+Hypothesized fix: add an explicit "STEP 1 — BRAINSTORM" section to the economics prompt that directs the agent to enumerate, *before searching*, alternative vocabulary the gold documents might use: formal terminology, adjacent techniques, prerequisite methodology, contrasting concepts, named theorems/models. Then search with the expanded vocabulary.
+
+### Change
+
+Modified `buildPromptBrightEconomics` to include a 3-step structure: brainstorm alternatives → broad multi-vocabulary search → rank. The brainstorm enumerates 5 categories of alternative vocabulary without naming specific concepts from the corpus (to avoid leakage).
+
+### Result (economics, full 103 queries, Haiku)
+
+| Metric | Grep-warning (prior best) | + query expansion | Δ | Paired t p | Sign test p |
+|--------|---------------------------|-------------------|---|-----------|-------------|
+| nDCG@10 | 0.369 | 0.358 | -0.011 | 0.73 | 0.60 |
+| Retrieval recall | 0.536 | **0.569** | **+0.033** | 0.33 | **0.016** |
+| Ranking recall | 0.403 | 0.399 | -0.004 | 0.89 | 0.14 |
+| Zero-gold queries | 21 | 20 | -1 | — | — |
+| Avg tool calls | 10.5 | 12.0 | +1.5 | — | — |
+
+Sign-test (better/worse/tied): nDCG 31/26/40, retrieval 31/14/58, ranking 24/14/65.
+
+### Analysis
+
+Mixed, but with a real signal on retrieval:
+
+- **Retrieval fix is real**: 2:1 direction ratio in favor of expansion (sign test p=0.016) confirms the brainstorm is surfacing gold that pure literal search missed. Magnitude is noisy (paired t p=0.33) because a few big swings dominate variance.
+- **Ranking is the bottleneck**, now more visible: query 31 (DiD → synthetic control) went from 0% → 100% retrieval recall — agent found all 5 gold synthetic-control docs — but 0% made it into top-10 because the ranker still prefers the literal DiD matches. The agent trusts lexical similarity over the "adjacent technique" insight even when retrieval surfaces the right documents.
+- **nDCG wash**: +3.3pp retrieval recall gets erased by ranker rejection of the newly-found gold.
+- **Some queries regress**: 7 prior-retrieved queries went to zero-gold under expansion, offsetting the 8 that recovered. Likely: broader searches dilute candidate-level relevance when the query is already narrow and specific.
+
+### Decision
+
+**Kept.** The nDCG regression is not statistically significant (p=0.73) and retrieval recall improves significantly by direction. We are effectively trading nDCG noise for a documented retrieval improvement, on the bet that fixing the ranking step next will let the extra retrieved gold land in top-10.
+
+Noting explicitly: this is a strategic adoption, not a performance win. If subsequent ranking experiments don't capitalize on the expanded retrieval, revisit.
+
+### Next ideas
+
+- **Fix ranking to value concept-match over lexical-match**: when expansion surfaces adjacent-technique gold, instruct the ranker to treat a document that solves the same underlying problem as MORE relevant than one that shares surface vocabulary. Highest-leverage experiment given current bottleneck shape.
+- Try on Sonnet: expansion + grep-warning combined. Sonnet's ranker (42% drop rate) might capitalize on the expanded retrieval better than Haiku (52% drop rate).

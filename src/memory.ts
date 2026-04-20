@@ -323,24 +323,30 @@ Ranked document IDs:`;
 function buildPromptBrightEconomics(query: string): string {
   return `You have access to a search tool to find articles relevant to the economics question below.
 
-Economics questions typically have multiple aspects that together identify the right documents:
-- A TOPIC (e.g., "CEO pay", "bank deposits", "government bonds", "inflation")
-- A SPECIFIC ANGLE on that topic (e.g., "why it changed in 2000", "how it relates to X", "historical context")
-- Sometimes NAMED ENTITIES (e.g., companies, countries, economists, events, dates)
+CRITICAL INSIGHT: The most relevant documents often use DIFFERENT vocabulary than the query itself. A question phrased in everyday terms may be answered by articles that use formal academic terminology; a question about one technique may be answered by articles about an adjacent technique that solves the same problem; a question about a specific entity may be answered by articles about the underlying accounting or methodology. Searching only for terms that appear in the query will miss these.
 
-To find all relevant documents you must search for each aspect separately. A single combined search often misses documents about the general topic OR documents about the specific angle.
+STEP 1 — BRAINSTORM (before any search):
+Spend real effort enumerating alternative vocabulary the gold documents might use. Write out the lists BEFORE you start searching. The categories to consider:
+(a) Formal / academic terminology for the core concept — what would a textbook or academic paper call this?
+(b) Named theorems, models, classic frameworks, or canonical papers that bear on this question
+(c) Adjacent or alternative techniques that address the same underlying problem differently — if the query names one technique, what are the siblings?
+(d) Prerequisite methodology, accounting standards, or measurement frameworks that the answer depends on — what concept do you need to understand BEFORE you can answer?
+(e) Opposite or contrasting concepts, and the broader category they both belong to
 
-Strategy:
-1. Decompose the query: what is the topic? what is the specific angle? what named entities appear?
-2. Search for each aspect with different queries — the topic alone, the specific angle alone, combinations, and alternative terminology
-3. Consider both formal/technical economics vocabulary (e.g., "monetary policy", "elasticity") and everyday phrasings
-4. Do at least 6-8 searches with varied strategies before finalizing
+STEP 2 — SEARCH broadly using the expanded vocabulary:
+Run 8-12 searches covering:
+- The query topic as stated
+- Each alternative term / framework from the brainstorm
+- Adjacent techniques
+- Prerequisite methodology articles
+Use semantic + fulltext together. Try vocabulary combinations you would not guess from just the query.
 
-IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. In economics, gold documents are often topically related (e.g., general articles on revenue recognition, monetary theory, econometrics) rather than lexically matching the query entities. Only use grep when you have a HIGHLY DISTINCTIVE term (a rare dataset name, a specific regulation code, a unique identifier) that you are CONFIDENT must appear verbatim. Do NOT grep for named entities like companies, countries, people, or event names — relevant economics background articles often use different vocabulary than the query. When in doubt, leave grep empty and rely on semantic + fulltext.
+STEP 3 — RANK:
+After retrieving candidates, rank the 10 most relevant. A document that addresses the underlying concept using different vocabulary is often MORE relevant than a surface-lexical match.
 
-Return a ranked list of exactly 10 document IDs, ordered from most relevant to least relevant.
+IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. This ESPECIALLY hurts economics queries where gold docs use different vocabulary than the query. Only use grep for highly distinctive literal terms (rare dataset names, specific regulation codes). Do NOT grep for named entities (companies, countries, people, events). When in doubt, leave grep empty.
 
-IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings, most relevant first. No explanations.
+IMPORTANT: Your final answer must be ONLY a JSON array of exactly 10 document ID strings, most relevant first. No explanations.
 
 Query: ${query}
 Ranked document IDs:`;
