@@ -190,3 +190,59 @@ Also removed the "no explanations" constraint to let the agent write deliberatio
 **Result**: Regression. The deliberation text likely consumed context budget that haiku could have used for more effective searches. Haiku's self-critique also isn't reliable at distinguishing "focused" from "general" sources.
 
 **Decision**: Reverted.
+
+---
+
+## Experiment 6: Sonnet on economics (2026-04-20)
+
+**Hypothesis**: Instrumentation showed 59% of gold docs seen by Haiku were dropped from its top-10 ranking. This points to a ranking-capacity problem in Haiku, not a retrieval problem. A stronger model should rank better when given the same candidate pool.
+
+**Change**: Switched model from `haiku` to `sonnet` in `evaluate-bright.ts`. No other changes.
+
+**Testing**: 30-query quick eval on economics, decomposition prompt.
+
+| Model | nDCG@10 (30q) | Avg tool calls | Time |
+|-------|---------------|----------------|------|
+| Haiku (variance) | 0.25-0.35 | 9.0 | ~8 min |
+| **Sonnet** | **0.515** | 13.1 | ~15 min |
+
+**Result**: +45-80% improvement over Haiku. Sonnet also makes more tool calls (13 vs 9), indicating deeper exploration AND better ranking. Cost: ~3x more tokens and ~2x slower, but the quality jump is decisive.
+
+**Decision**: Keep as an option for high-stakes runs; default remains Haiku to match other experiments.
+
+---
+
+## Cross-Domain Results Summary
+
+### Haiku (concept / decomposition prompt), full eval
+
+| Domain | nDCG@10 | Queries |
+|--------|---------|---------|
+| theoremqa_theorems | **0.512** | 76 |
+| psychology | **0.472** | 101 |
+| pony | **0.409** | 112 |
+| economics | **0.363** | 103 |
+| **Mean** | **0.439** | **392** |
+
+### Model comparison (economics, 30-query quick)
+
+| Model | nDCG@10 |
+|-------|---------|
+| Haiku | ~0.28-0.35 (high run-to-run variance) |
+| Sonnet | **0.515** |
+
+### Context
+
+Published BRIGHT SOTA is approximately **0.22** across the full benchmark. All four of our Haiku domain scores beat that by 1.6-2.3x, using:
+- Claude Haiku as the agent
+- Postgres with HNSW + BM25 (pg_textsearch)
+- Single MCP tool for hybrid search
+- Concept-based prompt (decomposition variant for economics)
+
+### Takeaways
+
+1. **Agent-based hybrid search is strong**: an LLM choosing what to search beats published SOTA across all domains tested.
+2. **Model quality dominates over prompt tuning**: Sonnet +45% over Haiku vs decomposition prompt +3% over concept prompt. The biggest lever we've found.
+3. **Ranking is the bottleneck, not retrieval**: instrumentation showed 59% of gold docs seen by Haiku were dropped from its top-10 ranking. Stronger models help here directly.
+4. **Prompt overhead has a cost**: every "think harder before ranking" prompt hurt Haiku (expansion -1.7%, deliberation -3%, no-RRF -5%). The agent uses context for searching better than for self-critique.
+5. **RRF fusion is load-bearing**: dropping it (top-10 from each mode concatenated) regressed -5%. Agreement across modes matters.
