@@ -27,18 +27,27 @@ function saveCache(key: string, embeddings: number[][]): void {
 // tokenize into many short tokens). For single-doc limit we use chars/3 since
 // real English/LaTeX ratio is ~3-4, and we want to only error on truly long docs.
 const CHARS_PER_TOKEN_BATCH = 2;
-const CHARS_PER_TOKEN_DOC = 3;
+const CHARS_PER_TOKEN_DOC = 3.5;
 const MAX_TOKENS_PER_BATCH = 200_000;
 const MAX_TOKENS_PER_DOC = 8000;
 const MAX_CHARS_PER_DOC = MAX_TOKENS_PER_DOC * CHARS_PER_TOKEN_DOC;
 
-function assertDocFits(text: string, idx: number): void {
-  if (text.length > MAX_CHARS_PER_DOC) {
-    throw new Error(
-      `Document at index ${idx} is ${text.length} chars (> ${MAX_CHARS_PER_DOC} = ~${MAX_TOKENS_PER_DOC} tokens). ` +
-        `Exceeds text-embedding-3-small 8191-token limit. Preview: ${text.slice(0, 200)}...`,
-    );
+/** Truncate overlong docs with a warning. */
+function truncateIfNeeded(texts: string[]): string[] {
+  let truncated = 0;
+  let maxOriginal = 0;
+  const out = texts.map((t) => {
+    if (t.length > MAX_CHARS_PER_DOC) {
+      truncated++;
+      if (t.length > maxOriginal) maxOriginal = t.length;
+      return t.slice(0, MAX_CHARS_PER_DOC);
+    }
+    return t;
+  });
+  if (truncated > 0) {
+    console.log(`  Truncated ${truncated}/${texts.length} docs to ${MAX_CHARS_PER_DOC} chars (max was ${maxOriginal})`);
   }
+  return out;
 }
 
 /** Pack texts into batches respecting both count limit and token limit. */
@@ -68,8 +77,8 @@ export async function embedWithCache(
   batchSize: number,
   cachePrefix: string,
 ): Promise<number[][]> {
-  texts.forEach(assertDocFits);
-  const batches = packBatches(texts, batchSize);
+  const safe = truncateIfNeeded(texts);
+  const batches = packBatches(safe, batchSize);
   const all: number[][] = [];
   let cached = 0;
   let fetched = 0;
