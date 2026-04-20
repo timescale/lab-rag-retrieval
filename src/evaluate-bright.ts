@@ -237,6 +237,19 @@ async function main() {
           const goldSet = new Set(ex.gold_ids);
           const score = ndcg(filteredIds, goldSet, 10);
 
+          // Recall metrics
+          const top10 = new Set(filteredIds.slice(0, 10));
+          const seenFromToolCalls = new Set<string>();
+          for (const tc of result.toolCalls) {
+            for (const id of tc.resultIds) {
+              if (goldSet.has(id)) seenFromToolCalls.add(id);
+            }
+          }
+          const goldCount = goldSet.size;
+          const retrievalRecall = goldCount === 0 ? 0 : seenFromToolCalls.size / goldCount;
+          const inTop10 = [...goldSet].filter((id) => top10.has(id)).length;
+          const rankingRecall = goldCount === 0 ? 0 : inTop10 / goldCount;
+
           allResults[qi] = {
             domain,
             queryId: ex.id,
@@ -244,6 +257,8 @@ async function main() {
             goldIds: ex.gold_ids,
             retrievedIds: filteredIds.slice(0, 10),
             ndcg10: score,
+            retrievalRecall,
+            rankingRecall,
             numToolCalls: result.toolCalls.length,
             toolCalls: result.toolCalls,
           };
@@ -261,12 +276,18 @@ async function main() {
 
   // Compute aggregates
   const overallNdcg10 = mean(allResults.map((r) => r.ndcg10));
+  const overallRetrievalRecall = mean(allResults.map((r) => r.retrievalRecall));
+  const overallRankingRecall = mean(allResults.map((r) => r.rankingRecall));
   const avgToolCalls = mean(allResults.map((r) => r.numToolCalls));
+  const queriesWithZeroGoldSeen = allResults.filter((r) => r.retrievalRecall === 0).length;
 
   console.log(`Domain: ${domain}`);
-  console.log(`  nDCG@10: ${overallNdcg10.toFixed(3)}`);
-  console.log(`  Avg tool calls: ${avgToolCalls.toFixed(1)}`);
-  console.log(`  Queries: ${allResults.length}\n`);
+  console.log(`  nDCG@10:          ${overallNdcg10.toFixed(3)}`);
+  console.log(`  Retrieval recall: ${overallRetrievalRecall.toFixed(3)}  (gold seen in any tool call)`);
+  console.log(`  Ranking recall:   ${overallRankingRecall.toFixed(3)}  (gold in final top-10)`);
+  console.log(`  Zero-gold queries: ${queriesWithZeroGoldSeen}/${allResults.length}`);
+  console.log(`  Avg tool calls:   ${avgToolCalls.toFixed(1)}`);
+  console.log(`  Queries:          ${allResults.length}\n`);
 
   // Save results
   const timestamp = new Date().toISOString();
@@ -274,7 +295,16 @@ async function main() {
     timestamp,
     totalQueries: allResults.length,
     overallNdcg10,
-    byDomain: { [domain]: { count: allResults.length, ndcg10: overallNdcg10 } },
+    overallRetrievalRecall,
+    overallRankingRecall,
+    byDomain: {
+      [domain]: {
+        count: allResults.length,
+        ndcg10: overallNdcg10,
+        retrievalRecall: overallRetrievalRecall,
+        rankingRecall: overallRankingRecall,
+      },
+    },
     description,
     results: allResults,
   };
@@ -288,6 +318,8 @@ async function main() {
     timestamp,
     domain,
     ndcg10: Number(overallNdcg10.toFixed(4)),
+    retrievalRecall: Number(overallRetrievalRecall.toFixed(4)),
+    rankingRecall: Number(overallRankingRecall.toFixed(4)),
     queries: allResults.length,
     description,
   });
