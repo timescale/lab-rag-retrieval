@@ -310,6 +310,8 @@ Strategy:
 3. Also search for related API functions and standard library features
 4. Do at least 5-6 searches with different strategies before finalizing
 
+IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. Only use grep when you have a HIGHLY DISTINCTIVE term (a rare API name, a specific function signature, a unique identifier) that you are CONFIDENT must appear verbatim in the answer documents. Do NOT use grep for topic names, common words, or guesses about what the answer "should" mention — this will filter out correct documents that use different phrasing. When in doubt, leave grep empty and rely on semantic + fulltext.
+
 After searching, return a ranked list of exactly 10 document IDs, ordered from most relevant to least relevant.
 
 IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings, most relevant first. No explanations.
@@ -333,6 +335,8 @@ Strategy:
 2. Search for each aspect with different queries — the topic alone, the specific angle alone, combinations, and alternative terminology
 3. Consider both formal/technical economics vocabulary (e.g., "monetary policy", "elasticity") and everyday phrasings
 4. Do at least 6-8 searches with varied strategies before finalizing
+
+IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. In economics, gold documents are often topically related (e.g., general articles on revenue recognition, monetary theory, econometrics) rather than lexically matching the query entities. Only use grep when you have a HIGHLY DISTINCTIVE term (a rare dataset name, a specific regulation code, a unique identifier) that you are CONFIDENT must appear verbatim. Do NOT grep for named entities like companies, countries, people, or event names — relevant economics background articles often use different vocabulary than the query. When in doubt, leave grep empty and rely on semantic + fulltext.
 
 Return a ranked list of exactly 10 document IDs, ordered from most relevant to least relevant.
 

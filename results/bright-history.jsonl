@@ -12,3 +12,5 @@
 {"timestamp":"2026-04-20T17:56:34.226Z","domain":"economics","ndcg10":0.2808,"queries":30,"description":"baseline decomp with per-toolcall instrumentation"}
 {"timestamp":"2026-04-20T18:17:59.997Z","domain":"economics","ndcg10":0.2487,"queries":30,"description":"explicit deliberation before ranking (quick)"}
 {"timestamp":"2026-04-20T18:37:32.798Z","domain":"economics","ndcg10":0.5154,"queries":30,"description":"sonnet (quick)"}
+{"timestamp":"2026-04-20T19:30:30.329Z","domain":"economics","ndcg10":0.2934,"queries":20,"description":"grep warning in prompt + tool desc"}
+{"timestamp":"2026-04-20T19:53:55.575Z","domain":"economics","ndcg10":0.3687,"queries":103,"description":"grep warning in prompt + tool desc (full 103)"}

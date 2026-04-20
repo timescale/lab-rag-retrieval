@@ -259,3 +259,57 @@ Our 4-domain mean (0.439) would place roughly 5th-7th overall **if** the unevalu
 3. **Ranking is the bottleneck, not retrieval**: instrumentation showed 59% of gold docs seen by Haiku were dropped from its top-10 ranking. Stronger models help here directly.
 4. **Prompt overhead has a cost**: every "think harder before ranking" prompt hurt Haiku (expansion -1.7%, deliberation -3%, no-RRF -5%). The agent uses context for searching better than for self-critique.
 5. **RRF fusion is load-bearing**: dropping it (top-10 from each mode concatenated) regressed -5%. Agreement across modes matters.
+
+---
+
+## Experiment: Discourage grep use in prompt + tool description (2026-04-20)
+
+### Hypothesis
+
+Instrumentation analysis (see `/tmp` exploratory script from earlier) showed that in Sonnet's low-recall economics queries, the agent's grep patterns were actively excluding gold documents. Examples:
+
+| Query | Gold seen | Grep patterns | What gold docs actually contained |
+|-------|-----------|---------------|-----------------------------------|
+| Gaza aid | 0/10 | `Gaza`, `Marshall Plan`, `Mediterranean` | Econometrics regression text |
+| Samsung/S.Korea | 0/5 | `Samsung\|South Korea GDP` | ASC 606 revenue recognition |
+| RBC model | 1/6 | `RBC\|real business cycle` | elasticity_of_substitution articles |
+| Bank deposits | 1/7 | `reverse repo\|ONRRP` | moneycreationinthemoderneconomy |
+
+Since grep is a hard AND filter applied to BOTH semantic and fulltext results, overly-specific patterns (where the agent greps for what it *thinks* the answer should contain) silently exclude topically-relevant gold documents that use different vocabulary.
+
+Hypothesized fix: warn the agent in both the prompt and the tool description that grep is a hard filter and should only be used for highly distinctive literal terms.
+
+### Change
+
+- `buildPromptBrightDefault` and `buildPromptBrightEconomics`: added an "IMPORTANT about grep" paragraph explaining the hard-filter behavior and warning against using grep for topic names / guesses / named entities.
+- `mcp-server.ts` tool description: replaced the "use grep with | for broad matching" guidance with an explicit WARNING that grep is a HARD AND filter and should default to empty.
+
+### Result (economics, full 103 queries, Haiku)
+
+| Config | nDCG@10 | Grep usage | Δ |
+|--------|---------|------------|---|
+| Baseline concept prompt | 0.3506 | (not measured) | — |
+| Economics-specific decomp (prior best) | 0.3633 | (not measured) | +0.013 |
+| + grep warning (this run) | **0.3690** | **0%** | +0.006 vs prior best |
+
+- Grep usage dropped from "significant" in prior runs to **exactly 0%** — the warning is effective at suppressing grep.
+- nDCG improvement is small (+0.006) but in the right direction.
+- 20-query quick subset earlier was 0.293 — noise range, consistent with prior 20-30 query Haiku runs (0.25-0.35).
+
+### Analysis
+
+The small magnitude of improvement makes sense: grep was a *sometimes-helpful, sometimes-harmful* tool. Suppressing it loses the occasional assist but also removes the occasional catastrophic false filter. The overall effect is modestly positive, not large, because:
+
+- Most economics queries had sufficient semantic + fulltext recall without grep
+- The catastrophic grep-excludes-gold cases were a minority of queries
+- Some of the prior "grep is hurting" signal was Sonnet-specific (Sonnet used grep more aggressively than Haiku does)
+
+### Decision
+
+**Adopted.** Small but consistent improvement, and removes a documented failure mode. The warning should also help more on Sonnet (who was the heavier grep user). Worth re-running Sonnet quick to confirm.
+
+### Next ideas
+
+- Test on Sonnet quick: grep warning should help more there since Sonnet used grep more
+- Consider removing grep from the tool entirely (option 1 from the discussion) as a simpler long-term solution
+- Consider making grep a soft rerank boost instead of a hard filter

@@ -23,11 +23,11 @@ const server = new McpServer({
 
 server.tool(
   "me_memory_search",
-  `Search memories containing Wikipedia paragraphs (139k corpus). Modes: semantic, fulltext, grep, or combinations. Use grep with | for broad pattern matching: grep "population|inhabitants|census" finds all demographic mentions. grep "born|birth|native" finds all origin mentions.`,
+  `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — it applies to BOTH semantic and fulltext results, so overly-specific grep patterns silently filter out correct documents that phrase things differently. Only use grep for highly distinctive literal terms you're confident must appear verbatim (rare API names, unique identifiers). Default to leaving grep empty.`,
   {
     semantic: z.string().nullable().describe("Natural language query for semantic/meaning search"),
     fulltext: z.string().nullable().describe("Keywords/phrases for BM25 exact matching"),
-    grep: z.string().nullable().describe("Regex pattern (case-insensitive). Use | for OR synonyms. Returns ALL matches."),
+    grep: z.string().nullable().describe("Regex pattern (case-insensitive). HARD AND filter on all other modes — use only for highly distinctive literal terms you KNOW must appear verbatim. Leave empty when unsure."),
     candidateLimit: z.number().int().min(0).max(1000).describe("Candidates per search mode before RRF fusion (0 = default 30)"),
     limit: z.number().int().min(0).max(1000).describe("Maximum results (0 = default 10)"),
   },
