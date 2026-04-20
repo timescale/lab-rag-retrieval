@@ -153,3 +153,40 @@ The real problem is **source identification**. Pick the wrong source → near-ze
 **Result**: Slight regression despite 16% more tool calls. More framings → more diffuse top-10 across competing hypotheses → diluted ranking.
 
 **Decision**: Reverted. The decomposition prompt remains best for economics.
+
+---
+
+## Instrumentation: per-tool-call results (2026-04-20)
+
+Added capture of each search's returned IDs to diagnose seen-but-not-ranked.
+
+**On 30-query instrumented economics run** (nDCG 0.281 — run-to-run variance of ~±0.07):
+- Agent saw ~100 unique docs per query across ~9 searches
+- 93 gold docs total were visible to the agent across tool results
+- Only 38 of those 93 made it into top-10 rankings
+- **55 gold docs were seen but not ranked** (59% of visible gold)
+
+Split of failures:
+- **~33% retrieval**: gold wasn't in any search result (10/30 queries)
+- **~67% ranking**: gold was in the pool but got kicked out (20/30 queries)
+
+Pattern: the agent tends to pick sub-sources whose title keywords match the query, not sub-sources whose content directly addresses the query's specific claim. E.g., for "Von-Neumann Morgenstern preferences" the agent picks `VonNeumannMorgensternutilitytheorem` over the gold `Stochasticdominance` — the first is a perfect title match but the second actually addresses the question.
+
+---
+
+## Experiment 5: Explicit deliberation prompt — rejected (2026-04-20)
+
+**Hypothesis**: Since the agent is a bad ranker when given many candidates, forcing it to deliberate explicitly (list top-15 with justification, then pick 10) might bias it toward the right sources.
+
+**Change**: Added to the economics prompt: "BEFORE outputting... list top 15 candidates, note for each: is this source FOCUSED on the exact question or a general overview that merely mentions the topic? Prefer focused sources over general overviews. When multiple chunks come from the same source, rank them consecutively."
+
+Also removed the "no explanations" constraint to let the agent write deliberation text.
+
+| Prompt | nDCG@10 (30q) | Avg tools |
+|--------|---------------|-----------|
+| Decomposition (baseline) | ~0.28-0.35 (variance) | 9.0 |
+| **Deliberation** | **0.249** | 8.9 |
+
+**Result**: Regression. The deliberation text likely consumed context budget that haiku could have used for more effective searches. Haiku's self-critique also isn't reliable at distinguishing "focused" from "general" sources.
+
+**Decision**: Reverted.

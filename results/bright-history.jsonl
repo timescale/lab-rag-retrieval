@@ -8,3 +8,6 @@
 {"timestamp":"2026-04-20T14:46:19.843Z","domain":"economics","ndcg10":0.3319,"queries":103,"description":"QA-style prompt"}
 {"timestamp":"2026-04-20T17:00:37.132Z","domain":"economics","ndcg10":0.3633,"queries":103,"description":"economics-specific decomposition prompt"}
 {"timestamp":"2026-04-20T17:19:00.891Z","domain":"economics","ndcg10":0.3353,"queries":30,"description":"query expansion + source awareness (quick)"}
+{"timestamp":"2026-04-20T17:48:00.594Z","domain":"economics","ndcg10":0.3039,"queries":30,"description":"no RRF, top-10 semantic + top-10 BM25 (quick)"}
+{"timestamp":"2026-04-20T17:56:34.226Z","domain":"economics","ndcg10":0.2808,"queries":30,"description":"baseline decomp with per-toolcall instrumentation"}
+{"timestamp":"2026-04-20T18:17:59.997Z","domain":"economics","ndcg10":0.2487,"queries":30,"description":"explicit deliberation before ranking (quick)"}
