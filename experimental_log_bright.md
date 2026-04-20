@@ -109,3 +109,47 @@ All four domains well above published BRIGHT SOTA of ~22 nDCG@10. The concept pr
 **Result**: Small but real improvement (+3.4% relative). The explicit decomposition framing helps. Kept as economics-specific for now.
 
 **Decision**: Adopted for economics only. Might generalize to other QA domains later.
+
+---
+
+## Gold Distribution Analysis — Economics (2026-04-20)
+
+Deep dive on why economics scores lowest (0.363 vs ~0.4+ on others):
+
+Economics gold docs are heavily concentrated per source:
+- Avg **7.8 gold docs per query**
+- Avg **1.0 unique sources per query**
+- Avg **7.5 chunks per source**
+
+Distribution of max chunks-from-one-source per query:
+| Max chunks/source | # queries |
+|-------------------|-----------|
+| 1 | 37 (36%) |
+| 2 | 14 |
+| 3 | 8 |
+| 4-5 | 11 |
+| 6-10 | 15 |
+| 11+ | **18 (17%)** |
+
+**Implication**: 64% of queries have gold concentrated in one source (2+ chunks). 17% have 11+ chunks from one source. "Chunk bunching" in retrieval is *correct* when the agent picks the right source — not a bug.
+
+The real problem is **source identification**. Pick the wrong source → near-zero score. Pick the right source → grab many chunks and score high.
+
+---
+
+## Experiment 4: Query expansion prompt — rejected (2026-04-20)
+
+**Hypothesis**: Economics queries fail primarily because the agent's initial framing matches the wrong source cluster. Generating 3-5 alternative framings upfront and searching each would increase the chance of hitting the right cluster.
+
+**Change**: Prompt instructs agent to brainstorm multiple framings (literal / formal vocab / everyday vocab / temporal / named entities / related sub-topics), search each, then pick the most coherent cluster.
+
+**Testing**: 30-query quick eval on economics.
+
+| Prompt | nDCG@10 (30q) | Avg tools |
+|--------|---------------|-----------|
+| Decomposition (baseline) | 0.352 | 9.0 |
+| **Query expansion** | **0.335** | 10.4 |
+
+**Result**: Slight regression despite 16% more tool calls. More framings → more diffuse top-10 across competing hypotheses → diluted ranking.
+
+**Decision**: Reverted. The decomposition prompt remains best for economics.
