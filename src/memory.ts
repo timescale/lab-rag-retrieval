@@ -297,9 +297,9 @@ Short answer:`;
 }
 
 // -- BRIGHT Prompt -----------------------------------------------------------
-// AUTORESEARCH: This prompt is modifiable by the research loop.
+// AUTORESEARCH: These prompts are modifiable by the research loop.
 
-export function buildPromptBright(query: string, _domain: string): string {
+function buildPromptBrightDefault(query: string): string {
   return `You have access to a search tool to find relevant documents in a corpus of programming language documentation, tutorials, and source code.
 
 Your task: find documents that would help someone solve the problem described in the query below. Think about what CONCEPTS, LANGUAGE FEATURES, and TECHNIQUES are needed — don't just search for keywords from the problem statement.
@@ -316,4 +316,33 @@ IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings, m
 
 Query: ${query}
 Ranked document IDs:`;
+}
+
+function buildPromptBrightEconomics(query: string): string {
+  return `You have access to a search tool to find articles relevant to the economics question below.
+
+Economics questions typically have multiple aspects that together identify the right documents:
+- A TOPIC (e.g., "CEO pay", "bank deposits", "government bonds", "inflation")
+- A SPECIFIC ANGLE on that topic (e.g., "why it changed in 2000", "how it relates to X", "historical context")
+- Sometimes NAMED ENTITIES (e.g., companies, countries, economists, events, dates)
+
+To find all relevant documents you must search for each aspect separately. A single combined search often misses documents about the general topic OR documents about the specific angle.
+
+Strategy:
+1. Decompose the query: what is the topic? what is the specific angle? what named entities appear?
+2. Search for each aspect with different queries — the topic alone, the specific angle alone, combinations, and alternative terminology
+3. Consider both formal/technical economics vocabulary (e.g., "monetary policy", "elasticity") and everyday phrasings
+4. Do at least 6-8 searches with varied strategies before finalizing
+
+Return a ranked list of exactly 10 document IDs, ordered from most relevant to least relevant.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings, most relevant first. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
+}
+
+export function buildPromptBright(query: string, domain: string): string {
+  if (domain === "economics") return buildPromptBrightEconomics(query);
+  return buildPromptBrightDefault(query);
 }

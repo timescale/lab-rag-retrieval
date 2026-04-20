@@ -6,3 +6,4 @@
 {"timestamp":"2026-04-20T13:15:34.560Z","domain":"economics","ndcg10":0.3506,"queries":103,"description":"baseline concept prompt"}
 {"timestamp":"2026-04-20T13:43:06.698Z","domain":"psychology","ndcg10":0.4721,"queries":101,"description":"baseline concept prompt"}
 {"timestamp":"2026-04-20T14:46:19.843Z","domain":"economics","ndcg10":0.3319,"queries":103,"description":"QA-style prompt"}
+{"timestamp":"2026-04-20T17:00:37.132Z","domain":"economics","ndcg10":0.3633,"queries":103,"description":"economics-specific decomposition prompt"}

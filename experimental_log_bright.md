@@ -91,3 +91,21 @@ All four domains well above published BRIGHT SOTA of ~22 nDCG@10. The concept pr
 **Result**: Slight regression. The QA framing, despite being more "fitting" to the corpus, actually performs worse. The concept prompt's stronger instructions ("identify techniques, search for each separately, do 5-6 searches") seem to drive better behavior regardless of domain.
 
 **Decision**: Reverted. Keep the single concept prompt across all domains.
+
+---
+
+## Experiment 3: Economics decomposition prompt (2026-04-20)
+
+**Hypothesis**: Economics queries have a structure — a TOPIC + SPECIFIC ANGLE + sometimes NAMED ENTITIES. The concept prompt doesn't explicitly instruct the agent to decompose and search each aspect separately. Explicit decomposition might find more relevant docs.
+
+**Change**: Added a second prompt variant (`buildPromptBrightEconomics`) dispatched when `domain === "economics"`. The prompt tells the agent to identify topic/angle/entities and search for each separately; emphasizes formal + everyday terminology; asks for 6-8 searches.
+
+| Prompt | nDCG@10 | Δ vs concept | Avg tools |
+|--------|---------|--------------|-----------|
+| Concept | 0.351 | — | 9.1 |
+| QA-style | 0.332 | -0.019 | 9.2 |
+| **Decomposition** | **0.363** | **+0.012** | 9.0 |
+
+**Result**: Small but real improvement (+3.4% relative). The explicit decomposition framing helps. Kept as economics-specific for now.
+
+**Decision**: Adopted for economics only. Might generalize to other QA domains later.
