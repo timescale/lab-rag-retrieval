@@ -6,5 +6,6 @@ data/musique/
 data/musique.zip
 data/corpus.jsonl
 data/dev.jsonl
+data/bright/
 data/embedding_cache/
 results/eval-*.json

@@ -7,6 +7,9 @@ import { TABLE_NAME } from "./config.ts";
 
 const RRF_K = 60;
 
+// Allow overriding the table name via env var (e.g., for BRIGHT benchmark)
+const ACTIVE_TABLE = process.env.MCP_TABLE ?? TABLE_NAME;
+
 const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
 
 const server = new McpServer({
@@ -60,9 +63,9 @@ server.tool(
       if (hasFulltext) {
         const tBm25 = performance.now();
         const bm25 = await sql.unsafe<Array<{ id: string }>>(
-          `SELECT id FROM ${TABLE_NAME}
+          `SELECT id FROM ${ACTIVE_TABLE}
            ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
-           ORDER BY content <@> to_bm25query($${paramIdx}, '${TABLE_NAME}_content_bm25_idx')
+           ORDER BY content <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_content_bm25_idx')
            LIMIT $${paramIdx + 1}`,
           [...filterValues, params.fulltext, candidateLimit] as any[],
         );
@@ -87,7 +90,7 @@ server.tool(
         }
         const semFilterClause = semFilters.length > 0 ? " AND " + semFilters.join(" AND ") : "";
         const sem = await sql.unsafe<Array<{ id: string }>>(
-          `SELECT id FROM ${TABLE_NAME}
+          `SELECT id FROM ${ACTIVE_TABLE}
            WHERE embedding IS NOT NULL
              AND (embedding <=> $1::halfvec) < 1.0${semFilterClause}
            ORDER BY (embedding <=> $1::halfvec) ASC, created_at DESC
@@ -117,7 +120,7 @@ server.tool(
       }
 
       const rows = await sql.unsafe<Array<{ id: string; content: string }>>(
-        `SELECT id, content FROM ${TABLE_NAME} WHERE id = ANY($1::uuid[])`,
+        `SELECT id, content FROM ${ACTIVE_TABLE} WHERE id = ANY($1::text[])`,
         [topIds.map((r) => r.id)],
       );
 
@@ -130,7 +133,7 @@ server.tool(
     } else if (hasGrep) {
       // Grep-only search
       const rows = await sql.unsafe<Array<{ id: string; content: string }>>(
-        `SELECT id, content FROM ${TABLE_NAME}
+        `SELECT id, content FROM ${ACTIVE_TABLE}
          WHERE content ~* $1
          ORDER BY created_at DESC
          LIMIT $2`,

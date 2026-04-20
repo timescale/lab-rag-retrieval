@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import postgres from "postgres";
-import { TABLE_NAME } from "./config.ts";
+import { TABLE_NAME, createCorpusTable } from "./config.ts";
 
 const GDRIVE_FILE_ID = "1tGdADlNjWFaHLeZZGShh2IRcpO6Lv24h";
 const ZIP_PATH = "data/musique.zip";
@@ -175,19 +175,7 @@ async function setupDatabase(): Promise<void> {
   await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
   await sql.unsafe("CREATE EXTENSION IF NOT EXISTS pg_textsearch");
 
-  console.log(`Creating ${TABLE_NAME} table...`);
-  await sql.unsafe(`DROP TABLE IF EXISTS ${TABLE_NAME}`);
-  await sql.unsafe(`
-    CREATE TABLE ${TABLE_NAME} (
-      id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      content    text NOT NULL,
-      embedding  halfvec(1536),
-      created_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
-
-  const [row] = await sql.unsafe(`SELECT count(*)::int as count FROM ${TABLE_NAME}`);
-  console.log(`\nDone. ${TABLE_NAME} table has ${row!.count} rows.`);
+  await createCorpusTable(sql, TABLE_NAME);
 
   await sql.end();
 }

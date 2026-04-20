@@ -7,7 +7,12 @@
     "ingest": "bun src/ingest.ts",
     "ingest:quick": "bun src/ingest.ts --samples 500",
     "eval": "bun src/evaluate.ts",
-    "eval:quick": "bun src/evaluate.ts --samples 100"
+    "eval:quick": "bun src/evaluate.ts --samples 100",
+    "setup:bright": "bun src/prepare-bright.ts",
+    "ingest:bright": "bun src/ingest-bright.ts",
+    "ingest:bright:quick": "bun src/ingest-bright.ts --domain pony --force",
+    "eval:bright": "bun src/evaluate-bright.ts",
+    "eval:bright:quick": "bun src/evaluate-bright.ts --samples 20 --domain pony"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

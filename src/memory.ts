@@ -9,8 +9,9 @@
 // =============================================================================
 
 import { embedWithCache } from "./embed-cache.ts";
-import { TABLE_NAME } from "./config.ts";
+import { TABLE_NAME, BRIGHT_TABLE_NAME } from "./config.ts";
 import type { Sql, CorpusDoc } from "./types.ts";
+import type { BrightDocument } from "./types_bright.ts";
 
 // -- Config ------------------------------------------------------------------
 
@@ -113,6 +114,64 @@ export async function ingest(
   console.log(`  Indexes rebuilt.`);
 }
 
+// -- BRIGHT Ingestion --------------------------------------------------------
+
+export async function ingestBright(
+  docs: BrightDocument[],
+  sql: Sql,
+): Promise<void> {
+  if (docs.length === 0) return;
+
+  const T = BRIGHT_TABLE_NAME;
+  const contents = docs.map((d) => d.content);
+  console.log(`  Embedding ${contents.length} documents...`);
+  const embeddings = await embedWithCache(contents, embed, EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL);
+
+  // Drop indexes for fast bulk insert
+  console.log(`  Dropping indexes for bulk insert...`);
+  await sql.unsafe(`DROP INDEX IF EXISTS ${T}_embedding_hnsw_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS ${T}_content_bm25_idx`);
+
+  // COPY for fast bulk insert
+  console.log(`  Inserting ${docs.length} rows via COPY...`);
+  const writable = await sql.unsafe(`COPY ${T} (id, content, embedding) FROM STDIN`).writable();
+
+  for (let i = 0; i < docs.length; i++) {
+    const doc = docs[i]!;
+    const vec = `[${embeddings[i]!.join(",")}]`;
+    const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
+    const line = `${esc(doc.id)}\t${esc(doc.content)}\t${vec}\n`;
+    if (!writable.write(line)) {
+      await new Promise<void>((resolve) => writable.once("drain", resolve));
+    }
+    if ((i + 1) % 10000 === 0) {
+      process.stdout.write(`  Progress: ${i + 1}/${docs.length}\n`);
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    writable.end(() => resolve());
+    writable.on("error", reject);
+  });
+  process.stdout.write(`  Progress: ${docs.length}/${docs.length}\n`);
+
+  // Recreate indexes
+  console.log(`  Recreating indexes...`);
+  console.log(`    HNSW (embedding)...`);
+  await sql.unsafe(`
+    CREATE INDEX ${T}_embedding_hnsw_idx
+      ON ${T} USING hnsw (embedding halfvec_cosine_ops)
+      WITH (m = 16, ef_construction = 64)
+  `);
+  console.log(`    BM25 (content)...`);
+  await sql.unsafe(`
+    CREATE INDEX ${T}_content_bm25_idx
+      ON ${T} USING bm25 (content)
+      WITH (text_config = 'english', k1 = 1.2, b = 0.75)
+  `);
+  console.log(`  Indexes rebuilt.`);
+}
+
 // -- RRF Fusion --------------------------------------------------------------
 
 interface RankedResult {
@@ -184,7 +243,7 @@ export async function retrieve(
 
   // Fetch full content for top results, preserving RRF rank order
   const rows = await sql.unsafe<Array<{ id: string; content: string }>>(
-    `SELECT id, content FROM ${TABLE_NAME} WHERE id = ANY($1::uuid[])`,
+    `SELECT id, content FROM ${TABLE_NAME} WHERE id = ANY($1::text[])`,
     [topIds],
   );
 
@@ -230,4 +289,20 @@ IMPORTANT: Your final answer must be ONLY a short phrase — no explanations, no
 
 Question: ${question}
 Short answer:`;
+}
+
+// -- BRIGHT Prompt -----------------------------------------------------------
+// AUTORESEARCH: This prompt is modifiable by the research loop.
+
+export function buildPromptBright(query: string): string {
+  return `You have access to a search tool to find relevant documents in a corpus. Use me_memory_search to find documents relevant to the query below.
+
+This query may require reasoning to identify which documents are relevant — the answer may not share obvious keywords with the query. Try multiple search strategies: semantic search, keyword search, and grep patterns.
+
+After searching, return a ranked list of exactly 10 document IDs, ordered from most relevant to least relevant. Use the IDs shown in parentheses in the search results (e.g., "id: some_topic/Document_0.txt").
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings, most relevant first. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
 }
