@@ -9,7 +9,7 @@
 // =============================================================================
 
 import { embedWithCache } from "./embed-cache.ts";
-import { TABLE_NAME, BRIGHT_TABLE_NAME } from "./config.ts";
+import { TABLE_NAME } from "./config.ts";
 import type { Sql, CorpusDoc } from "./types.ts";
 import type { BrightDocument } from "./types_bright.ts";
 
@@ -118,11 +118,12 @@ export async function ingest(
 
 export async function ingestBright(
   docs: BrightDocument[],
+  tableName: string,
   sql: Sql,
 ): Promise<void> {
   if (docs.length === 0) return;
 
-  const T = BRIGHT_TABLE_NAME;
+  const T = tableName;
   const contents = docs.map((d) => d.content);
   console.log(`  Embedding ${contents.length} documents...`);
   const embeddings = await embedWithCache(contents, embed, EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL);

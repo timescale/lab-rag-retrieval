@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs"
 import postgres from "postgres";
 import { buildPromptBright } from "./memory.ts";
 import { ndcg } from "./ndcg.ts";
-import { BRIGHT_TABLE_NAME } from "./config.ts";
+import { brightTableName } from "./config.ts";
 import type { BrightExample, BrightQueryResult, BrightEvalRun } from "./types_bright.ts";
 
 // ---------------------------------------------------------------------------
@@ -44,15 +44,17 @@ function parseArgs() {
 // LLM answering
 // ---------------------------------------------------------------------------
 
-const MCP_CONFIG = JSON.stringify({
-  mcpServers: {
-    recall: {
-      command: "bun",
-      args: ["src/mcp-server.ts"],
-      env: { MCP_TABLE: BRIGHT_TABLE_NAME },
+function mcpConfigFor(tableName: string): string {
+  return JSON.stringify({
+    mcpServers: {
+      recall: {
+        command: "bun",
+        args: ["src/mcp-server.ts"],
+        env: { MCP_TABLE: tableName },
+      },
     },
-  },
-});
+  });
+}
 
 const MCP_TOOLS = "mcp__recall__me_memory_search";
 const TIMEOUT_MS = 240_000;
@@ -65,12 +67,12 @@ interface ClaudeResult {
   retrievedIds: Set<string>;
 }
 
-async function askClaudeOnce(prompt: string): Promise<ClaudeResult> {
+async function askClaudeOnce(prompt: string, mcpConfig: string): Promise<ClaudeResult> {
   const args = [
     "claude", "-p", prompt,
     "--output-format", "json", "--verbose", "--model", "haiku",
     "--json-schema", JSON_SCHEMA,
-    "--mcp-config", MCP_CONFIG, "--strict-mcp-config",
+    "--mcp-config", mcpConfig, "--strict-mcp-config",
     "--tools", MCP_TOOLS, "--allowedTools", MCP_TOOLS,
   ];
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
@@ -130,10 +132,10 @@ async function askClaudeOnce(prompt: string): Promise<ClaudeResult> {
   }
 }
 
-async function askClaude(prompt: string): Promise<ClaudeResult> {
+async function askClaude(prompt: string, mcpConfig: string): Promise<ClaudeResult> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await askClaudeOnce(prompt);
+      return await askClaudeOnce(prompt, mcpConfig);
     } catch (e: any) {
       if (attempt < MAX_RETRIES) {
         process.stderr.write(`  retry(${attempt + 1}) `);
@@ -176,15 +178,18 @@ async function main() {
   console.log(`=== BRIGHT Evaluation (${domain}) ===`);
   console.log(`Queries: ${examples.length}/${allExamples.length}\n`);
 
+  const tableName = brightTableName(domain);
+  const mcpConfig = mcpConfigFor(tableName);
+
   // Verify corpus is loaded
   const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
-  const [memRow] = await sql.unsafe(`SELECT count(*)::int as count FROM ${BRIGHT_TABLE_NAME}`);
+  const [memRow] = await sql.unsafe(`SELECT count(*)::int as count FROM ${tableName}`);
   if (memRow!.count === 0) {
-    console.error(`${BRIGHT_TABLE_NAME} table is empty. Run \`bun run ingest:bright -- --domain ${domain}\` first.`);
+    console.error(`${tableName} table is empty. Run \`bun run ingest:bright -- --domain ${domain}\` first.`);
     await sql.end();
     process.exit(1);
   }
-  console.log(`Corpus: ${memRow!.count} documents in ${BRIGHT_TABLE_NAME}\n`);
+  console.log(`Corpus: ${memRow!.count} documents in ${tableName}\n`);
   await sql.end();
 
   // Evaluate queries
@@ -204,7 +209,7 @@ async function main() {
       promises.push(
         (async () => {
           const prompt = buildPromptBright(ex.query);
-          const result = await askClaude(prompt);
+          const result = await askClaude(prompt, mcpConfig);
 
           // Filter out excluded IDs
           const excludedSet = new Set(ex.excluded_ids.filter((id) => id !== "N/A"));

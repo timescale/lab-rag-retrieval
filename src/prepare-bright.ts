@@ -6,7 +6,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import postgres from "postgres";
-import { BRIGHT_TABLE_NAME, createCorpusTable } from "./config.ts";
+import { brightTableName, createCorpusTable } from "./config.ts";
 
 const BRIGHT_DOMAINS = [
   "biology", "earth_science", "economics", "psychology", "robotics",
@@ -117,9 +117,11 @@ async function main() {
     await downloadDomain(d);
   }
 
-  // Create table
+  // Create a per-domain table for each downloaded domain
   const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
-  await createCorpusTable(sql, BRIGHT_TABLE_NAME);
+  for (const d of domains) {
+    await createCorpusTable(sql, brightTableName(d));
+  }
   await sql.end();
 }
 

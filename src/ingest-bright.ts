@@ -1,4 +1,4 @@
-// Ingest BRIGHT documents into the bright_corpus table.
+// Ingest BRIGHT documents into a per-domain table (e.g. bright_pony).
 //
 // Usage:
 //   bun run ingest:bright -- --domain pony          # ingest pony domain
@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import postgres from "postgres";
 import { ingestBright } from "./memory.ts";
-import { BRIGHT_TABLE_NAME } from "./config.ts";
+import { brightTableName } from "./config.ts";
 import type { BrightDocument } from "./types_bright.ts";
 
 function parseArgs() {
@@ -41,13 +41,14 @@ async function main() {
   });
   console.log(`${docs.length} documents loaded`);
 
+  const tableName = brightTableName(domain);
   const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
 
   // Check existing data
-  const [row] = await sql.unsafe(`SELECT count(*)::int as count FROM ${BRIGHT_TABLE_NAME}`);
+  const [row] = await sql.unsafe(`SELECT count(*)::int as count FROM ${tableName}`);
   if (row!.count > 0) {
     if (!force) {
-      console.log(`${BRIGHT_TABLE_NAME} table already has ${row!.count} rows.`);
+      console.log(`${tableName} table already has ${row!.count} rows.`);
       console.log("Use --force to truncate and re-ingest.");
       await sql.end();
       return;
@@ -55,15 +56,15 @@ async function main() {
   }
 
   // Truncate and ingest
-  console.log(`Truncating ${BRIGHT_TABLE_NAME} table...`);
-  await sql.unsafe(`TRUNCATE ${BRIGHT_TABLE_NAME}`);
+  console.log(`Truncating ${tableName} table...`);
+  await sql.unsafe(`TRUNCATE ${tableName}`);
 
   const t0 = performance.now();
-  await ingestBright(docs, sql);
+  await ingestBright(docs, tableName, sql);
   const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
 
-  const [finalRow] = await sql.unsafe(`SELECT count(*)::int as count FROM ${BRIGHT_TABLE_NAME}`);
-  console.log(`\nDone. ${finalRow!.count} documents stored (${elapsed}s)`);
+  const [finalRow] = await sql.unsafe(`SELECT count(*)::int as count FROM ${tableName}`);
+  console.log(`\nDone. ${finalRow!.count} documents stored in ${tableName} (${elapsed}s)`);
 
   await sql.end();
 }

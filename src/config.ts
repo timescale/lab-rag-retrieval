@@ -1,5 +1,9 @@
 export const TABLE_NAME = "corpus";
-export const BRIGHT_TABLE_NAME = "bright_corpus";
+
+/** Per-domain table name for BRIGHT. Keeps domains isolated. */
+export function brightTableName(domain: string): string {
+  return `bright_${domain.replace(/[^a-z0-9_]/g, "_")}`;
+}
 
 /** Create (or recreate) a corpus table with the standard schema. */
 export async function createCorpusTable(sql: any, tableName: string): Promise<void> {
