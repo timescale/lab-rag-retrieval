@@ -306,10 +306,32 @@ The small magnitude of improvement makes sense: grep was a *sometimes-helpful, s
 
 ### Decision
 
-**Adopted.** Small but consistent improvement, and removes a documented failure mode. The warning should also help more on Sonnet (who was the heavier grep user). Worth re-running Sonnet quick to confirm.
+**Adopted — but with low confidence.** The improvement is small (+0.006) and could plausibly be within run-to-run noise, since we did not run the prior-best prompt multiple times to establish variance. Kept the change because:
+
+1. Direction is positive
+2. Documented failure mode removed (grep silently excluding gold when the agent guesses wrong vocabulary)
+3. Makes upcoming experiments cleaner — if we add query expansion that generates alternative domain terms, we don't want the agent grepping for those guesses and filtering out everything else
+
+If a later change regresses and we suspect grep-suppression is a contributor, worth revisiting.
+
+### Recall analysis (this run)
+
+Instrumented `resultIds` per tool call showed the remaining bottleneck shape:
+
+| Metric | Value |
+|--------|-------|
+| Retrieval recall (gold seen / total gold) | 281 / 800 = 35.1% |
+| Ranking recall (gold in top10 / total gold) | 135 / 800 = 16.9% |
+| Queries with 0 gold seen | 21 / 103 (20%) |
+| Drop rate (gold seen but dropped from top10) | 146 / 281 = 52% |
+
+Two distinct failure modes:
+1. **Retrieval miss (20% of queries)**: zero gold docs seen in any search. Inspection of 5 example queries showed gold vocabulary sits in a *different lexical region* than the query — e.g. question about "Samsung's contribution to South Korea GDP" has gold about "ASC 606 revenue recognition" accounting standards; question about "disincentivizing doing something first" has gold about "volunteer dilemma" (a game-theory term the agent never searched for). Pure semantic + BM25 on the raw query cannot bridge to adjacent-but-differently-named concepts. This motivates the next experiment: LLM-generated query expansion with alternative domain terminology.
+2. **Ranking drop (52% of gold the agent does see)**: matches prior findings. Stronger model is the proven lever here.
 
 ### Next ideas
 
+- **Query expansion to adjacent vocabulary**: have the agent first generate alternative economics/domain terms, related techniques, and named concepts *before* searching. Addresses retrieval miss.
 - Test on Sonnet quick: grep warning should help more there since Sonnet used grep more
 - Consider removing grep from the tool entirely (option 1 from the discussion) as a simpler long-term solution
 - Consider making grep a soft rerank boost instead of a hard filter
