@@ -78,10 +78,12 @@ export async function ingest(
   console.log(`  Inserting ${rows.length} rows via COPY...`);
   const writable = await sql.unsafe(`COPY ${TABLE_NAME} (id, content, embedding) FROM STDIN`).writable();
 
+  // PostgreSQL text rejects NUL bytes (U+0000); strip before COPY.
+  const stripNulMusique = (s: string) => s.replace(/\x00/g, "");
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     const vec = `[${embeddings[i]!.join(",")}]`;
-    const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
+    const esc = (s: string) => stripNulMusique(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
     const line = `${row.id}\t${esc(row.content)}\t${vec}\n`;
     if (!writable.write(line)) {
       await new Promise<void>((resolve) => writable.once("drain", resolve));
@@ -137,10 +139,12 @@ export async function ingestBright(
   console.log(`  Inserting ${docs.length} rows via COPY...`);
   const writable = await sql.unsafe(`COPY ${T} (id, content, embedding) FROM STDIN`).writable();
 
+  // PostgreSQL text type rejects NUL bytes (U+0000); strip them before COPY.
+  const stripNul = (s: string) => s.replace(/\x00/g, "");
   for (let i = 0; i < docs.length; i++) {
     const doc = docs[i]!;
     const vec = `[${embeddings[i]!.join(",")}]`;
-    const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
+    const esc = (s: string) => stripNul(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
     const line = `${esc(doc.id)}\t${esc(doc.content)}\t${vec}\n`;
     if (!writable.write(line)) {
       await new Promise<void>((resolve) => writable.once("drain", resolve));
