@@ -380,3 +380,36 @@ Noting explicitly: this is a strategic adoption, not a performance win. If subse
 
 - **Fix ranking to value concept-match over lexical-match**: when expansion surfaces adjacent-technique gold, instruct the ranker to treat a document that solves the same underlying problem as MORE relevant than one that shares surface vocabulary. Highest-leverage experiment given current bottleneck shape.
 - Try on Sonnet: expansion + grep-warning combined. Sonnet's ranker (42% drop rate) might capitalize on the expanded retrieval better than Haiku (52% drop rate).
+
+---
+
+## Experiment: Union merge instead of RRF (2026-04-20)
+
+### Hypothesis
+
+RRF compresses both modes down to one ranked list of `limit` items. Switching to a union — take top-`limit` from each mode, dedupe, return all unique (up to 2*limit items per call) — would surface more candidates to the agent. Hypothesized gain: higher retrieval recall because the agent sees strictly more gold documents per search.
+
+### Change
+
+`mcp-server.ts`: replaced RRF fusion with union merge. Take top-`limit` from BM25 and top-`limit` from semantic, concatenate semantic-first, dedupe. Agent now sees up to 2*limit unique docs per hybrid search (e.g., ~20 instead of 10 when modes are disjoint).
+
+### Result (economics, full 103 queries, Haiku, expansion prompt kept)
+
+| Metric | RRF baseline | Union | Δ | Paired t p | Sign test p | Better/Worse |
+|--------|--------------|-------|---|-----------|-------------|--------------|
+| nDCG@10 | 0.358 | 0.341 | -0.018 | 0.40 | 0.14 | 22 / 34 |
+| Retrieval recall | 0.569 | 0.607 | +0.038 | 0.19 | **0.65** | 24 / 20 |
+| Ranking recall | 0.399 | 0.391 | -0.008 | 0.73 | 0.23 | 13 / 21 |
+| Zero-gold queries | 20 | 21 | +1 | — | — | — |
+
+### Analysis
+
+Surprising compared to the expansion experiment: **aggregate retrieval recall went up but per-query direction is flat**. Unlike expansion (31 better / 14 worse, sign test p=0.016), union has 24 better / 20 worse on retrieval (p=0.65). The +3.8pp mean comes from a handful of queries getting a large boost, offset by a roughly equal number losing. This is fundamentally different: expansion *systematically* found more gold; union *randomly* reshuffled which gold gets found.
+
+Why? RRF's "both-modes-agree" boost is doing real work: when a document appears in both BM25 and semantic top-candidates, RRF promotes it above items found by only one mode. Union loses that signal — top-20 semantic + top-20 BM25 with semantic-first ordering often puts a weak semantic item ahead of a strong BM25+semantic agreement item.
+
+nDCG trended worse (22 better / 34 worse queries, sign test p=0.14, not quite significant but directionally clear). More candidates with weaker ordering is worse for the ranker than fewer candidates with cleaner ordering.
+
+### Decision
+
+**Reverted.** Union's retrieval gain is not directionally significant (p=0.65), and nDCG trends worse. RRF's cross-mode agreement is load-bearing. The ranking bottleneck isn't solved by throwing more candidates at the agent.
