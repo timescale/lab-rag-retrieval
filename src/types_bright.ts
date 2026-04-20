@@ -25,7 +25,11 @@ export interface BrightQueryResult {
   retrievedIds: string[];
   ndcg10: number;
   numToolCalls: number;
-  toolCalls: Array<{ tool: string; args: Record<string, unknown> }>;
+  toolCalls: Array<{
+    tool: string;
+    args: Record<string, unknown>;
+    resultIds: string[];
+  }>;
 }
 
 export interface BrightEvalRun {

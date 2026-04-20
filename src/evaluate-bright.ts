@@ -61,9 +61,15 @@ const TIMEOUT_MS = 240_000;
 const MAX_RETRIES = 2;
 const JSON_SCHEMA = '{"type":"object","properties":{"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
 
+interface ToolCallRecord {
+  tool: string;
+  args: Record<string, unknown>;
+  resultIds: string[];
+}
+
 interface ClaudeResult {
   rankedIds: string[];
-  toolCalls: Array<{ tool: string; args: Record<string, unknown> }>;
+  toolCalls: ToolCallRecord[];
   retrievedIds: Set<string>;
 }
 
@@ -89,7 +95,8 @@ async function askClaudeOnce(prompt: string, mcpConfig: string): Promise<ClaudeR
 
   try {
     const events = JSON.parse(stdout);
-    const toolCalls: ClaudeResult["toolCalls"] = [];
+    const toolCallsById = new Map<string, ToolCallRecord>();
+    const toolCalls: ToolCallRecord[] = [];
     const retrievedIds = new Set<string>();
     let rankedIds: string[] = [];
 
@@ -97,7 +104,13 @@ async function askClaudeOnce(prompt: string, mcpConfig: string): Promise<ClaudeR
       if (evt.type === "assistant") {
         for (const block of evt.message?.content ?? []) {
           if (block.type === "tool_use") {
-            toolCalls.push({ tool: block.name, args: block.input ?? {} });
+            const record: ToolCallRecord = {
+              tool: block.name,
+              args: block.input ?? {},
+              resultIds: [],
+            };
+            toolCalls.push(record);
+            if (block.id) toolCallsById.set(block.id, record);
           }
         }
       }
@@ -107,9 +120,14 @@ async function askClaudeOnce(prompt: string, mcpConfig: string): Promise<ClaudeR
             const text = Array.isArray(block.content)
               ? block.content.map((c: any) => c.text ?? "").join("")
               : String(block.content ?? "");
+            const ids: string[] = [];
             for (const m of text.matchAll(/id: ([^\)]+)\)/g)) {
-              retrievedIds.add(m[1]!.trim());
+              const id = m[1]!.trim();
+              ids.push(id);
+              retrievedIds.add(id);
             }
+            const record = block.tool_use_id ? toolCallsById.get(block.tool_use_id) : null;
+            if (record) record.resultIds = ids;
           }
         }
       }
