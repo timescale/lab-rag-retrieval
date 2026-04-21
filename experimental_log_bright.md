@@ -465,3 +465,64 @@ For the harness, keep Haiku as default (fast iteration) and use Sonnet for final
 2. Expansion surfaces gold; the ranker is what converts it to nDCG. Match them together.
 3. Off-the-shelf general rerankers would likely hit the same "lexical similarity, no reasoning bridge" wall that Haiku hits. Model-as-reranker wins on this benchmark.
 4. Statistical rigor matters: we adopted expansion at nDCG -0.011 because retrieval recall was directionally significant (p=0.016), rejected union despite +0.038 retrieval because it was NOT (p=0.65). Sign-test vs paired-t disagreement flagged both cases correctly.
+
+---
+
+## Important understanding: BRIGHT gold labeling methodology (2026-04-21)
+
+Through case-by-case inspection of economics zero-retrieval queries, we realized the gold labels are not "the best docs to answer the question" but **the specific sources an expert answer explicitly cites or quotes**. Concrete evidence:
+
+- Query 15 ("why did CEO pay decrease around 2000?") — gold is `ExecutiveExcess1999pdf_7.txt`. The `gold_answer` literally *quotes* that chunk verbatim: "According to [Institute for Policy Studies — A Decade of Executive Excess: The 1990s...] : Of course, the biggest contributor to exorbitant CEO pay is stock options, which are variable. Indeed, when the stock market was weak in 1994, fewer executives exercised their options and total compensation took a dip."
+- Query 47 ("does low nominal interest rate encourage lending?") — gold is 30 chunks of Liu/Mian/Sufi (Econometrica 2022, "Low Interest Rates, Market Power, and Productivity Growth"). The `gold_answer` cites this paper by name to explain why low rates are *bad* for long-run growth via market concentration — answering the deeper "why is low n.i.r. considered good?" angle in the query.
+
+Implications for our understanding:
+- The retrieval task is effectively "predict what named papers / dated reports / regulatory codes / canonical sources a well-researched expert would cite for this question." Much harder than topical relevance.
+- Our "gold-labeling artifact" hypothesis was largely wrong. Most zero-retrieval failures are real — the agent found shallower, more generic material while missing the specific citable source.
+- Sonnet's large ranking-recall gain (+0.101, p=0.0008) likely reflects its better reasoning about "what would an expert cite here?" — not just "what's on topic."
+- Queries often contain a "sophisticated angle" (e.g. "why is this considered X?" framing, or the user's apparent contradiction) that points to a prerequisite concept or a contrarian research finding. Surface-reading retrieval misses these.
+
+Separately, some queries do have a labeling tension (e.g. query 15's 2022 retrospective docs were arguably as informative as the 1999 report), but this is the minority.
+
+---
+
+## Experiment: Citable-source framing + sophisticated-angle detection (2026-04-21)
+
+### Hypothesis
+
+Given the above understanding, an enhanced economics prompt should:
+1. Reframe the task as "find sources an expert answer would cite" (named papers, dated reports, regulatory codes).
+2. Detect "sophisticated-angle" cues in the query ("why is X considered Y?" → look for counter-arguments; user contradictions → look for prerequisite concepts).
+3. Bias the ranker toward citable-looking documents (formal papers with results, reports with specific titles/dates) over generic overview / textbook-style / recent quarterly-data material.
+
+### Change
+
+Modified `buildPromptBrightEconomics` to add a task reframe (citable sources), a "sophisticated-angle detection" paragraph, a 6th brainstorm category for named sources, and ranking guidance preferring citable looking docs.
+
+### Result (economics, full 103 queries, Haiku)
+
+| Metric | Expansion (prior) | + citable-source | Δ | Paired-t p | Sign test | Sign p |
+|--------|-------------------|-------------------|---|-----------|-----------|--------|
+| nDCG@10 | 0.358 | 0.337 | -0.021 | 0.47 | 30/36/37 | 0.54 |
+| Retrieval recall | 0.569 | 0.593 | +0.024 | 0.49 | 25/29/49 | 0.68 |
+| **Ranking recall** | 0.399 | **0.350** | **-0.049** | 0.13 | 20/26/57 | 0.46 |
+| Avg tool calls | 12.0 | 16.1 | +4.1 | — | — | — |
+
+### Analysis
+
+Regression is not statistically significant on any metric, but the direction is consistently negative on nDCG and ranking recall. Retrieval recall ticked up slightly (more vocabulary-expansion from the new brainstorm category) but the ranking step got worse — the opposite of what we wanted.
+
+Why it likely hurt:
+- The prompt grew substantially longer. More pre-search instruction means less context capacity for the ranking step and more opportunity for Haiku to over-index on edge-case directives.
+- "Prefer citable sources over overview material" misfires on queries where gold IS an overview doc (e.g. pony programming questions, which aren't in this test but would fare worse). Even in economics, some gold is textbook-style and the agent now down-weights it.
+- "Sophisticated-angle detection" is an explicit meta-reasoning step. Haiku's follow-through on this kind of instruction is inconsistent; when it misfires, the agent searches the wrong angle.
+- More tool calls (16.1 vs 12.0) dilute the agent's attention across more candidates before the ranking step, which is already its weakest step.
+
+Parallel with earlier findings: Haiku does better with simpler, lighter prompts. Every "think harder" prompt we tried (deliberation, query expansion with broad guidance, citable-source framing) regressed on Haiku even when the underlying intuition was correct. The instructions work — on Sonnet. On Haiku they cost more than they earn.
+
+### Decision
+
+**Reverted.** Kept the prior expansion prompt. The citable-source insight is correct but doesn't fit in a Haiku prompt; would be worth retesting on Sonnet where ranking reasoning can absorb more nuance.
+
+### Updated takeaway
+
+**Haiku has a prompt-length / instruction-density ceiling.** Adding conceptually correct guidance regresses performance past a certain point. For Haiku, the best prompt is the *simplest* one that carries the core expansion insight. For Sonnet, richer prompts may still help — untested.

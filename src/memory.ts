@@ -144,7 +144,7 @@ export async function ingestBright(
   for (let i = 0; i < docs.length; i++) {
     const doc = docs[i]!;
     const vec = `[${embeddings[i]!.join(",")}]`;
-    const esc = (s: string) => stripNul(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\n/g, "\\n");
+    const esc = (s: string) => stripNul(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
     const line = `${esc(doc.id)}\t${esc(doc.content)}\t${vec}\n`;
     if (!writable.write(line)) {
       await new Promise<void>((resolve) => writable.once("drain", resolve));
