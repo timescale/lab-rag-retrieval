@@ -787,3 +787,61 @@ An alternative fairness framing: any competent IR system evaluating on this corp
 - "Think carefully about what an expert would cite" → meta-reasoning, Haiku either ignores or overspecifies
 
 The former unlocks real capability; the latter regresses performance. Infrastructure (tree column, treeMatch param) is only as useful as the prompt directing its use.
+
+---
+
+## Experiment: Silent per-query exclusion via env var injection (2026-04-22)
+
+### Hypothesis
+
+Our eval code does POST-HOC exclusion filtering: the agent returns up to 10 ranked IDs, we filter out any that are in `excluded_ids`, and use whatever survives as the final top-10. On aops, which excludes ~9,200 docs per query, this left top-10 sets with only 1-2 items because many agent picks are in the exclusion list.
+
+BRIGHT's reference implementation excludes BEFORE ranking — the retriever never sees excluded docs. Our `excludeIds` tool param supports this, but the agent can't know 9,200 IDs to pass explicitly. We need *silent* server-side filtering.
+
+### Change
+
+1. `mcp-server-aops.ts`: reads `MCP_EXCLUDED_IDS_PATH` env var at startup; if set, loads the IDs and silently appends `id != ALL($n::text[])` to every search (BM25, semantic, grep). Agent doesn't see the filter; from its perspective, those documents don't exist in the corpus.
+2. `evaluate-bright.ts`: per-query, writes the query's `excluded_ids` to a temp file and builds an MCP config with `MCP_EXCLUDED_IDS_PATH=<temp>` env var. Cleans up the temp dir after the run.
+
+Files created per query; spawned MCP reads once at startup. ~9,200 IDs per aops query is trivial SQL `= ALL($n::text[])` work.
+
+### Result (aops, full 111 queries, Haiku, tree prompt + tree-aware MCP)
+
+| Metric | Prior (no silent exclude) | + silent exclude | Δ | Cumulative from default-MCP (0.081) |
+|--------|---------------------------|------------------|---|-------------------------------------|
+| **nDCG@10** | 0.169 | **0.241** | **+0.072** | **+0.160 (~3×)** |
+| Retrieval recall | 0.245 | **0.361** | +0.116 | +0.251 |
+| Ranking recall | 0.148 | **0.249** | +0.101 | +0.175 |
+| Zero-gold queries | 50/111 | **36/111** | -14 | -44 |
+| Avg tool calls | 13.2 | 16.9 | +3.7 | — |
+
+### Analysis
+
+Cleanest, largest single-change improvement on a blended-corpus domain. Three mechanisms:
+
+1. **Pool quality**: agent's search results no longer filled with near-duplicate noise. Every result returned is a genuine candidate. Prior, large fractions of top-30 from each search mode were camel_* near-duplicates that never would have scored.
+2. **Top-10 preservation**: post-hoc filtering previously truncated top-10 aggressively (to 1-2 items in many aops queries). Now the agent's 10 picks from a noise-free pool are all retained.
+3. **More productive iterations**: agent's avg tool calls went up (13.2 → 16.9). Because each search now yields distinct candidates (not endless near-dupes), extra searches pay off — agent iterates more.
+
+### Cumulative story on aops
+
+| Config | nDCG@10 |
+|--------|---------|
+| Baseline default MCP | 0.081 |
+| + tree-aware MCP (treeMatch available but undirected) | 0.087 |
+| + math prompt with tree-directive | 0.169 |
+| + silent per-query exclusion | **0.241** |
+
+Each layer contributes. The silent exclusion is the largest single gain, but the tree-aware + directive prompt matters because it cleans the *observable* candidate pool the agent reasons over.
+
+### Decision
+
+**Adopted.** Silent exclusion applies to aops/theoremqa_questions via the aops MCP variant. Default MCP unchanged (other domains have no real exclusions — all "N/A"). Pre-filtering and tree-directive prompt compound cleanly.
+
+### Implication for the cross-domain table
+
+aops re-evaluated: 0.081 → 0.241. Mean across all 12 domains now: **0.347** (up from 0.334 before tree prompt, 0.340 with tree prompt only). theoremqa_questions will likely see a comparable lift when re-run (same prompt route, same MCP variant, same exclusion structure).
+
+### Generalizable finding
+
+**Silent server-side filtering beats client-side post-hoc filtering whenever exclusion lists are too large to pass through the agent.** For benchmarks with per-query exclusions (BRIGHT's reasoning tier on math domains, any benchmark using near-duplicate filters), the MCP server should apply filters invisibly. The agent can't know 9,200 IDs; making the list size its problem is a design bug.

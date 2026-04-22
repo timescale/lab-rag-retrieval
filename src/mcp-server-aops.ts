@@ -6,6 +6,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { readFileSync, existsSync } from "node:fs";
 import postgres from "postgres";
 import { embed } from "./memory.ts";
 import { TABLE_NAME } from "./config.ts";
@@ -13,6 +14,20 @@ import { TABLE_NAME } from "./config.ts";
 const RRF_K = 60;
 
 const ACTIVE_TABLE = process.env.MCP_TABLE ?? TABLE_NAME;
+
+// For BRIGHT eval: a per-query excluded-ids file path. If set, the MCP server
+// silently applies `id != ALL(...)` to every search so the agent can never see
+// or rank these docs. Used for aops/theoremqa_questions where the excluded
+// list is ~9,200 IDs per query (too big to pass through the tool param).
+const SILENT_EXCLUDED_IDS: string[] = (() => {
+  const path = process.env.MCP_EXCLUDED_IDS_PATH;
+  if (!path || !existsSync(path)) return [];
+  return readFileSync(path, "utf-8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && l !== "N/A");
+})();
+const HAS_SILENT_EXCLUSIONS = SILENT_EXCLUDED_IDS.length > 0;
 
 const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
 
@@ -54,6 +69,13 @@ server.tool(
     if (hasExclude) {
       filters.push(`id != ALL($${paramIdx}::text[])`);
       filterValues.push(params.excludeIds);
+      paramIdx++;
+    }
+
+    // Silent per-query exclusion (set via MCP_EXCLUDED_IDS_PATH env var)
+    if (HAS_SILENT_EXCLUSIONS) {
+      filters.push(`id != ALL($${paramIdx}::text[])`);
+      filterValues.push(SILENT_EXCLUDED_IDS);
       paramIdx++;
     }
 
@@ -103,6 +125,11 @@ server.tool(
         if (hasExclude) {
           semFilters.push(`id != ALL($${semParamIdx}::text[])`);
           semFilterValues.push(params.excludeIds);
+          semParamIdx++;
+        }
+        if (HAS_SILENT_EXCLUSIONS) {
+          semFilters.push(`id != ALL($${semParamIdx}::text[])`);
+          semFilterValues.push(SILENT_EXCLUDED_IDS);
           semParamIdx++;
         }
         if (hasTreeMatch) {
@@ -156,6 +183,7 @@ server.tool(
       const qparams: unknown[] = [params.grep, limit];
       let idx = 3;
       if (hasExclude) { clauses.push(`id != ALL($${idx}::text[])`); qparams.push(params.excludeIds); idx++; }
+      if (HAS_SILENT_EXCLUSIONS) { clauses.push(`id != ALL($${idx}::text[])`); qparams.push(SILENT_EXCLUDED_IDS); idx++; }
       if (hasTreeMatch) { clauses.push(`tree ~ $${idx}::lquery`); qparams.push(params.treeMatch); idx++; }
       const extra = clauses.length > 0 ? " AND " + clauses.join(" AND ") : "";
       const rows = await sql.unsafe<Array<{ id: string; content: string; tree: string | null }>>(

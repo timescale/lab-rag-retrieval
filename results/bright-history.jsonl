@@ -31,3 +31,4 @@
 {"timestamp":"2026-04-22T00:45:36.695Z","domain":"aops","ndcg10":0.0874,"retrievalRecall":0,"rankingRecall":0.0738,"queries":111,"description":"haiku + tree-aware MCP"}
 {"timestamp":"2026-04-22T02:30:10.466Z","domain":"leetcode","ndcg10":0.177,"retrievalRecall":0.2477,"rankingRecall":0.1939,"queries":142,"description":"haiku + default prompt"}
 {"timestamp":"2026-04-22T07:57:50.092Z","domain":"aops","ndcg10":0.1686,"retrievalRecall":0.2453,"rankingRecall":0.1483,"queries":111,"description":"haiku + tree-aware prompt (math corpus)"}
+{"timestamp":"2026-04-22T08:47:50.761Z","domain":"aops","ndcg10":0.2411,"retrievalRecall":0.3613,"rankingRecall":0.2493,"queries":111,"description":"haiku + tree prompt + silent exclusion"}

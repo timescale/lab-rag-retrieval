@@ -7,7 +7,9 @@
 //   bun run eval:bright -- --domain pony --desc "baseline"
 //   bun run eval:bright:quick                                 # 20 queries, pony
 
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as pathJoin } from "node:path";
 import postgres from "postgres";
 import { buildPromptBright } from "./memory.ts";
 import { ndcg } from "./ndcg.ts";
@@ -48,19 +50,25 @@ function parseArgs() {
 // LLM answering
 // ---------------------------------------------------------------------------
 
-function mcpConfigFor(tableName: string, domain: string): string {
+function mcpConfigFor(
+  tableName: string,
+  domain: string,
+  excludedIdsPath?: string,
+): string {
   // aops and theoremqa_questions share a blended corpus with a populated
   // `tree` ltree column; their MCP variant exposes treeMatch.
   const serverFile =
     domain === "aops" || domain === "theoremqa_questions"
       ? "src/mcp-server-aops.ts"
       : "src/mcp-server.ts";
+  const env: Record<string, string> = { MCP_TABLE: tableName };
+  if (excludedIdsPath) env.MCP_EXCLUDED_IDS_PATH = excludedIdsPath;
   return JSON.stringify({
     mcpServers: {
       recall: {
         command: "bun",
         args: [serverFile],
-        env: { MCP_TABLE: tableName },
+        env,
       },
     },
   });
@@ -207,7 +215,9 @@ async function main() {
   console.log(`Queries: ${examples.length}/${allExamples.length}\n`);
 
   const tableName = brightTableName(domain);
-  const mcpConfig = mcpConfigFor(tableName, domain);
+  // Per-query MCP config so we can inject query-specific excluded_ids via env var.
+  const excludedDir = pathJoin(tmpdir(), `bright-excluded-${Date.now()}-${process.pid}`);
+  mkdirSync(excludedDir, { recursive: true });
 
   // Verify corpus is loaded
   const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
@@ -237,10 +247,20 @@ async function main() {
       promises.push(
         (async () => {
           const prompt = buildPromptBright(ex.query, domain);
-          const result = await askClaude(prompt, mcpConfig, model);
 
-          // Filter out excluded IDs
-          const excludedSet = new Set(ex.excluded_ids.filter((id) => id !== "N/A"));
+          // Build per-query MCP config with excluded_ids injected silently via env var.
+          const realExcluded = ex.excluded_ids.filter((id) => id !== "N/A");
+          let excludedPath: string | undefined;
+          if (realExcluded.length > 0) {
+            excludedPath = pathJoin(excludedDir, `${qi}.txt`);
+            writeFileSync(excludedPath, realExcluded.join("\n"));
+          }
+          const perQueryMcpConfig = mcpConfigFor(tableName, domain, excludedPath);
+          const result = await askClaude(prompt, perQueryMcpConfig, model);
+
+          // Belt-and-braces: still strip excluded from final ranking output in case
+          // the agent echoes an excluded id it had seen before exclusion was in effect.
+          const excludedSet = new Set(realExcluded);
           const filteredIds = result.rankedIds.filter((id) => !excludedSet.has(id));
 
           // Compute nDCG@10
@@ -283,6 +303,9 @@ async function main() {
   }
   const answerTime = ((performance.now() - t0) / 1000).toFixed(1);
   console.log(`Evaluation complete (${answerTime}s)\n`);
+
+  // Clean up temp excluded-ids files
+  try { rmSync(excludedDir, { recursive: true, force: true }); } catch {}
 
   // Compute aggregates
   const overallNdcg10 = mean(allResults.map((r) => r.ndcg10));
