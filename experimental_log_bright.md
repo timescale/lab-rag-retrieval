@@ -526,3 +526,178 @@ Parallel with earlier findings: Haiku does better with simpler, lighter prompts.
 ### Updated takeaway
 
 **Haiku has a prompt-length / instruction-density ceiling.** Adding conceptually correct guidance regresses performance past a certain point. For Haiku, the best prompt is the *simplest* one that carries the core expansion insight. For Sonnet, richer prompts may still help — untested.
+
+---
+
+## Understanding BRIGHT gold labeling (2026-04-21)
+
+After inspecting economics retrieval-miss queries case-by-case with the `gold_answer` and `reasoning` fields, the benchmark's gold-labeling methodology became clear:
+
+> **Gold = the specific source(s) that an expert answer explicitly cites or quotes.**
+
+Concrete evidence:
+- Query 15 ("CEO pay decrease around 2000"): gold is `ceopay/ExecutiveExcess1999pdf_7.txt`. The `gold_answer` literally quotes that chunk verbatim: *"Of course, the biggest contributor to exorbitant CEO pay is stock options, which are variable. Indeed, when the stock market was weak in 1994, fewer executives exercised their options and total compensation took a dip."*
+- Query 47 ("low nominal interest rate encourages lending?"): gold is 30 chunks of Liu/Mian/Sufi, Econometrica 2022, "Low Interest Rates, Market Power, and Productivity Growth" (ECTA17408). The `gold_answer` cites this paper by name to explain why low rates are *bad* for long-run growth via market concentration — answering the deeper "why is low n.i.r. considered good?" angle in the query.
+
+Implications:
+- The retrieval task is effectively "predict what named papers / dated reports / regulatory codes / canonical sources a well-researched expert would cite for this question." Much harder than topical relevance.
+- Most zero-retrieval failures are real — the agent finds shallower generic material while missing the specific citable source.
+- Sonnet's large ranking-recall gain (+0.101, p=0.0008) likely reflects its better reasoning about "what would an expert cite here?" — not just "what's on topic."
+- Queries often contain a "sophisticated angle" (e.g. "why is this considered X?" framing, or the user's apparent contradiction) that points to a prerequisite concept or a contrarian research finding.
+
+Separately, some queries do have a labeling tension (e.g. query 15's 2022 retrospective docs were arguably as informative as the 1999 report), but this is the minority.
+
+---
+
+## Experiment: Short citable-source prompt on Sonnet (2026-04-21)
+
+### Hypothesis
+
+The long citable-source prompt regressed on Haiku due to prompt density. On Sonnet, a shorter version focused on the core citable-source framing + sophisticated-angle detection might work: Sonnet has more reasoning headroom.
+
+### Change
+
+Replaced economics prompt with a much shorter ~1/4-length variant keeping only: "find sources an expert would cite", vocabulary-mismatch warning, brainstorm step (brief), citable-specific ranking guidance, grep warning.
+
+### Result (economics, Sonnet, 30-query quick, paired vs Sonnet + expansion prompt)
+
+| Metric | Expansion prompt | Short citation prompt | Δ | Paired-t p |
+|--------|------------------|------------------------|---|-----------|
+| **nDCG@10** | 0.542 | **0.477** | **-0.065** | **0.027** ★ |
+| Retrieval recall | 0.697 | 0.634 | -0.063 | 0.28 |
+| Ranking recall | 0.514 | 0.440 | -0.075 | 0.086 |
+
+### Analysis (generalizable lesson)
+
+Significant regression. Per-query inspection: the agent, told to find "citable sources like named academic papers, dated reports, regulatory codes", responded by generating specific-guess searches: *"SFAS 123 FASB stock option expensing"*, *"SEC proxy disclosure rules 1992 1993"*, *"Hall Liebman Frydman Saks CEO compensation"*, *"Bebchuk Fried pay without performance"*. These are legitimate "citable-source" guesses, but mostly wrong for any particular query — specific searches with wrong-guess keywords retrieve nothing.
+
+The prior expansion prompt's broader searches ("CEO compensation decline dot-com bubble stock options") matched gold via topical semantic similarity — the gold "Executive Excess 1999" chunk discusses CEO pay + stock options + 1994 dip in general terms, so topical search finds it.
+
+**Generalizable rule**: In agent+RAG setups, the agent should EXPAND the search space (divergent: enumerate vocabularies, let embeddings do semantic match), not NARROW it (convergent: commit to specific named guesses the LLM has to invent). The embedding model is better at "given a topic, find semantically similar docs" than the LLM is at "guess which specific named source exists."
+
+**Diagnostically-correct insights ≠ prescriptively-useful prompts.** Understanding that BRIGHT gold is expert-cited sources is valuable for analysis, but telling the agent to find "citable sources" backfires by pushing it toward narrow specific-guess searches.
+
+### Decision
+
+Reverted on both Haiku and Sonnet.
+
+---
+
+## Experiment: Title enrichment at ingestion (2026-04-21)
+
+### Hypothesis
+
+Deep-chunk gold (like ECTA17408 chunks 9-33 about Bertrand competition) lives in a lexically different region than its paper's topic (title: "Low Interest Rates, Market Power, and Productivity Growth"). Prepending the first ~300 chars of chunk 0 to every non-zero chunk would carry paper-level topic context into embeddings of deep chunks.
+
+### Change
+
+Added `enrichDocsWithTitles()` preprocessing step to `ingestBright`: group chunks by stem (`folder/file`), extract first 300 chars of chunk 0 as "preamble", prepend `[Document: <preamble>]` to every non-zero chunk's content.
+
+### Result (economics, full 103 queries, Haiku)
+
+| Metric | Expansion baseline | + title enrichment | Δ | Paired-t p | Sign p |
+|--------|---------------------|---------------------|---|-----------|--------|
+| nDCG@10 | 0.358 | 0.385 | +0.027 | 0.36 | 0.53 |
+| Retrieval recall | 0.569 | 0.581 | +0.012 | 0.74 | 0.57 |
+| Ranking recall | 0.399 | 0.420 | +0.021 | 0.46 | 0.76 |
+
+0.385 was the best Haiku econ result but statistically noise-level.
+
+### Per-query inspection
+
+The motivating cases didn't actually improve:
+- qid=47 (ECTA17408): still 0.00 ndcg, 0.00 retrieval. Title says "Market Power, Productivity Growth", query says "bank lending" — no lexical bridge.
+- qid=15 (CEO pay / Executive Excess 1999): still 0.00.
+- qid=14 (Samsung / ASC 606): still 0.00.
+- qid=11 (volunteer dilemma): still 0.00.
+
+Gains came elsewhere, and some queries regressed:
+- qid=24 (DiD fixed effects): 0.31 → 0.59
+- qid=0 (dollars / developing countries): 0.12 → 0.54
+- qid=31 (DiD/synthetic control): retrieval 1.00 → 0.40 (preamble SHIFTED embedding away from what had matched)
+
+### Decision
+
+**Reverted.** Modest aggregate gain isn't significant, the theoretical motivation (help ECTA17408-style deep-chunk recall) didn't pan out, and some queries regressed because preamble shifted embeddings away from chunk-specific matches. Doesn't generalize safely across domains.
+
+---
+
+## Tooling: exclude-ids parameter and tree metadata (2026-04-21)
+
+Two infrastructure additions motivated by the aops/theoremqa_questions diagnosis:
+
+### 1. `excludeIds` parameter on `me_memory_search` (all domains)
+
+**Problem**: Our eval does post-hoc exclusion filtering — agent returns up to 10 IDs, eval filters out any in `excluded_ids`, top-10 becomes whatever remains. On aops (excludes 9,200+ per query), this left final top-10 sets with just 1-2 items; lost 8-9 slots where gold could have been. BRIGHT's reference implementation excludes BEFORE ranking.
+
+**Fix**: Added `excludeIds: string[] | null` parameter to `me_memory_search` in `mcp-server.ts`, applied as `id != ALL($N::text[])` across BM25, semantic, and grep branches. Filter happens server-side in SQL.
+
+**Status**: Infrastructure in place. Haiku used it only 4/1007 aops tool calls without explicit prompting — agents don't discover novel tool params on their own.
+
+### 2. `tree` ltree column + `treeMatch` parameter (aops/theoremqa variants)
+
+**Problem**: The aops/theoremqa_questions corpus blends 7 source types; gold is heavily concentrated in `aops_` (60.7%) and `math_train_` (33.4%), but most retrieved candidates are `aqua_` (47.5% of corpus) and `camel_` (26.6%) which mostly aren't gold.
+
+**Changes**:
+- Added `tree ltree` column to BRIGHT schema (`createCorpusTable`). GIST index.
+- `brightSourceTree(id)` helper maps IDs → labels: `aqua`, `camel`, `gsm`, `math.test`, `math.train`, `theoremqa`, `aops` (and `<folder>` for text-corpus IDs).
+- `ingestBright` populates tree from ID.
+- Created `src/mcp-server-aops.ts` (variant of mcp-server.ts) with `treeMatch` param taking an ltree lquery pattern; applied as `tree ~ $N::lquery`. Surfaces `tree: <label>` in result lines so the agent can observe labels.
+- `evaluate-bright.ts` routes aops / theoremqa_questions → aops MCP, others → default MCP.
+
+### Result (aops, full 111 queries, Haiku, tree-aware MCP)
+
+| Metric | Prior default MCP | Tree-aware MCP | Δ |
+|--------|---------------------|-----------------|---|
+| nDCG@10 | 0.081 | 0.087 | +0.006 |
+
+Agent used `treeMatch` just 1/1007 tool calls, used `excludeIds` just 4/1007. Haiku didn't discover or use the new capabilities organically, even though they're in the tool description. Consistent with prior finding: simpler prompts win on Haiku; complex parameters go unused unless explicitly directed.
+
+**Bug note**: Adding `tree: <label>` to result lines broke the `resultIds` parse regex in evaluate-bright.ts (was `/id: ([^\)]+)\)/g` — greedy). Fixed to `/id: ([^,\)]+)[,\)]/g`. The broken regex only affected `retrievalRecall` computation for the aops tree-aware run; rankingRecall and nDCG come from structured output directly and remained valid.
+
+### Decision
+
+Tree-aware MCP kept (separate file, doesn't affect other domains). Value is latent — would unlock with a directive prompt or a stronger model that uses `treeMatch` to filter out `aqua`/`camel`/`gsm` noise on math retrieval. Haiku on its own doesn't.
+
+---
+
+## Full BRIGHT cross-domain results (Haiku, 2026-04-22)
+
+All 12 domains evaluated with Haiku, grep-warning + expansion-for-economics prompt, RRF fusion. Default MCP for most domains; tree-aware MCP for aops.
+
+| Domain | nDCG@10 | Queries |
+|--------|---------|---------|
+| biology | **0.553** | 103 |
+| theoremqa_theorems | 0.512 | 76 |
+| psychology | 0.472 | 101 |
+| earth_science | 0.459 | 116 |
+| pony | 0.409 | 112 |
+| economics | 0.369 (grep-warn) / 0.358 (expansion) | 103 |
+| sustainable_living | 0.360 | 108 |
+| stackoverflow | 0.341 | 117 |
+| robotics | 0.293 | 101 |
+| leetcode | 0.177 | 142 |
+| aops | 0.087 | 111 |
+| theoremqa_questions | 0.067 | 194 |
+| **Mean (12 domains)** | **0.334** | **1,384** |
+
+### Domain clustering by difficulty
+
+**Tier 1 — text-rich, text-gold (0.41-0.55)**: biology, psychology, earth_science, theoremqa_theorems, pony. Gold is long-form encyclopedic content; topical semantic match + BM25 works well. Pony is programming but code tutorials/docs are also text-rich.
+
+**Tier 2 — economics/social (0.29-0.40)**: economics, sustainable_living, stackoverflow, robotics. Gold mixes Wikipedia-style explainers with academic papers and institutional reports. Hybrid hybrid retrieval is decent; sophistication lags.
+
+**Tier 3 — code/math (0.07-0.18)**: leetcode, aops, theoremqa_questions. Gold is code snippets or math-solution LaTeX that lexically/semantically diverges from natural-language queries. Our text-oriented setup struggles here.
+
+### Sonnet data point
+
+Sonnet on economics full 103: nDCG=0.462 (vs Haiku 0.358, +0.104 abs, p=0.002). Ranking recall +0.101 (p=0.0008) — the gain is concentrated in ranking. A full Sonnet cross-domain sweep is untested but likely adds ~+0.1 across tier 1 & 2 domains; tier 3 (code/math) would still struggle because the underlying query→gold vocabulary gap is structural.
+
+### Takeaways (final)
+
+1. **Ranking is the dominant bottleneck on text-rich domains**. Retrieval finds 35-65% of gold; ranking keeps only ~40-50% of what's seen. Sonnet closes most of this gap via better reasoning about relevance.
+2. **Code/math domains need different approaches**. Our hybrid-search + text-prompt setup hits a floor when gold is LaTeX equations or code snippets. Would need specialized preprocessing (e.g., symbolic indexing), different embeddings, or a model explicitly trained on code retrieval.
+3. **Prompt-length ceiling on Haiku**. Simple expansion prompts help, complex meta-strategy prompts regress. Every "think harder before ranking" or "prefer specific sources" variant hurt even when the intuition was correct.
+4. **Diagnostic insights ≠ prompt fixes**. Understanding BRIGHT's "expert-cited-source" labeling is genuinely useful for analysis, but translating it into prompt instructions backfires — it pushes the agent toward narrow specific-guess searches that miss via wrong specifics, instead of broad topical searches that hit via semantic similarity.
+5. **Statistical rigor catches false wins**. Sign-test vs paired-t disagreement (expansion's retrieval +3.3pp was sign-significant p=0.016 but t-insignificant p=0.33) correctly flagged "this is a real pattern masked by variance." Union's retrieval +3.8pp looked similar in magnitude but failed the sign test (p=0.65) and was correctly rejected as noise.
+6. **Tooling > prompts on Haiku**. excludeIds and treeMatch add real capability, but Haiku doesn't use them organically. These unlock value only with explicit prompting or stronger models.

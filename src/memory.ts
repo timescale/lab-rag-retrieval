@@ -9,7 +9,7 @@
 // =============================================================================
 
 import { embedWithCache } from "./embed-cache.ts";
-import { TABLE_NAME } from "./config.ts";
+import { TABLE_NAME, brightSourceTree } from "./config.ts";
 import type { Sql, CorpusDoc } from "./types.ts";
 import type { BrightDocument } from "./types_bright.ts";
 
@@ -134,10 +134,11 @@ export async function ingestBright(
   console.log(`  Dropping indexes for bulk insert...`);
   await sql.unsafe(`DROP INDEX IF EXISTS ${T}_embedding_hnsw_idx`);
   await sql.unsafe(`DROP INDEX IF EXISTS ${T}_content_bm25_idx`);
+  await sql.unsafe(`DROP INDEX IF EXISTS ${T}_tree_gist_idx`);
 
   // COPY for fast bulk insert
   console.log(`  Inserting ${docs.length} rows via COPY...`);
-  const writable = await sql.unsafe(`COPY ${T} (id, content, embedding) FROM STDIN`).writable();
+  const writable = await sql.unsafe(`COPY ${T} (id, content, tree, embedding) FROM STDIN`).writable();
 
   // PostgreSQL text type rejects NUL bytes (U+0000); strip them before COPY.
   const stripNul = (s: string) => s.replace(/\x00/g, "");
@@ -145,7 +146,8 @@ export async function ingestBright(
     const doc = docs[i]!;
     const vec = `[${embeddings[i]!.join(",")}]`;
     const esc = (s: string) => stripNul(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
-    const line = `${esc(doc.id)}\t${esc(doc.content)}\t${vec}\n`;
+    const tree = brightSourceTree(doc.id) ?? "\\N"; // \N = NULL in COPY text format
+    const line = `${esc(doc.id)}\t${esc(doc.content)}\t${tree}\t${vec}\n`;
     if (!writable.write(line)) {
       await new Promise<void>((resolve) => writable.once("drain", resolve));
     }
@@ -169,10 +171,18 @@ export async function ingestBright(
       WITH (m = 16, ef_construction = 64)
   `);
   console.log(`    BM25 (content)...`);
+  // pg_textsearch's parallel workers fail with "tp_worker_0.0: No such file" on
+  // large corpora (~188k+ docs). Disable parallelism for this session.
+  await sql.unsafe(`SET max_parallel_maintenance_workers = 0`);
   await sql.unsafe(`
     CREATE INDEX ${T}_content_bm25_idx
       ON ${T} USING bm25 (content)
       WITH (text_config = 'english', k1 = 1.2, b = 0.75)
+  `);
+  console.log(`    GIST (tree)...`);
+  await sql.unsafe(`
+    CREATE INDEX ${T}_tree_gist_idx
+      ON ${T} USING gist (tree)
   `);
   console.log(`  Indexes rebuilt.`);
 }

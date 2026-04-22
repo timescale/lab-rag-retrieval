@@ -48,12 +48,18 @@ function parseArgs() {
 // LLM answering
 // ---------------------------------------------------------------------------
 
-function mcpConfigFor(tableName: string): string {
+function mcpConfigFor(tableName: string, domain: string): string {
+  // aops and theoremqa_questions share a blended corpus with a populated
+  // `tree` ltree column; their MCP variant exposes treeMatch.
+  const serverFile =
+    domain === "aops" || domain === "theoremqa_questions"
+      ? "src/mcp-server-aops.ts"
+      : "src/mcp-server.ts";
   return JSON.stringify({
     mcpServers: {
       recall: {
         command: "bun",
-        args: ["src/mcp-server.ts"],
+        args: [serverFile],
         env: { MCP_TABLE: tableName },
       },
     },
@@ -125,7 +131,7 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string): 
               ? block.content.map((c: any) => c.text ?? "").join("")
               : String(block.content ?? "");
             const ids: string[] = [];
-            for (const m of text.matchAll(/id: ([^\)]+)\)/g)) {
+            for (const m of text.matchAll(/id: ([^,\)]+)[,\)]/g)) {
               const id = m[1]!.trim();
               ids.push(id);
               retrievedIds.add(id);
@@ -201,7 +207,7 @@ async function main() {
   console.log(`Queries: ${examples.length}/${allExamples.length}\n`);
 
   const tableName = brightTableName(domain);
-  const mcpConfig = mcpConfigFor(tableName);
+  const mcpConfig = mcpConfigFor(tableName, domain);
 
   // Verify corpus is loaded
   const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });

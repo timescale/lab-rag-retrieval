@@ -13,7 +13,7 @@ const EMBEDDING_CACHE_DIR = "data/embedding_cache";
 // Hard limits from OpenAI:
 // - Per-request total: 300k tokens
 // - Per-document:       8191 tokens (text-embedding-3-small)
-const MAX_TOKENS_PER_BATCH = 290_000; // leave small headroom
+const MAX_TOKENS_PER_BATCH = 240_000; // OpenAI limit is 300k; js-tiktoken can undercount vs OpenAI's server-side count by up to 12% on code-heavy content (leetcode corpus), so large headroom needed
 const MAX_TOKENS_PER_DOC = 8000;      // leave small headroom
 
 // Lazily initialize encoding (loading the BPE tables isn't free).
