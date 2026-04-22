@@ -28,9 +28,11 @@ export async function createCorpusTable(sql: any, tableName: string): Promise<vo
  * (aqua, camel, gsm, math, TheoremQA, aops).
  */
 export function brightSourceTree(id: string): string | null {
-  // math_test_xxx / math_train_xxx -> math.test / math.train
+  // math_test_xxx / math_train_xxx -> math_test / math_train (single label)
+  // ltree's `|` alternation only works between single-position labels, so we
+  // keep each source on one level to allow patterns like `aops|math_train|...`
   const mathMatch = id.match(/^math_(test|train)_/);
-  if (mathMatch) return `math.${mathMatch[1]}`;
+  if (mathMatch) return `math_${mathMatch[1]}`;
   // TheoremQA_xxx -> theoremqa
   if (id.startsWith("TheoremQA_")) return "theoremqa";
   // aops_xxx -> aops

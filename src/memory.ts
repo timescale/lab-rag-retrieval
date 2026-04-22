@@ -365,20 +365,20 @@ Ranked document IDs:`;
 function buildPromptBrightMath(query: string): string {
   return `You have access to a search tool to find documents that help solve the math problem below.
 
-Corpus structure (visible via "tree: <label>" in search results): the corpus blends seven sources, each tagged by a tree label you can filter with treeMatch:
+Corpus structure (visible via "tree: <label>" in search results): the corpus blends seven sources, each tagged by a single-label tree label you can filter with treeMatch:
 - aops — competition math problems (AMC, AIME, etc.)
-- math.test / math.train — worked solutions to textbook-style math problems (the MATH dataset)
+- math_test / math_train — worked solutions to textbook-style math problems (the MATH dataset)
 - theoremqa — theorem-application questions with solutions
 - aqua — short algebra / arithmetic word problems (very short chunks, weak context)
 - camel — synthetic math problem-solution pairs, often shallow
 - gsm — grade-school math word problems
 
-The aqua, camel, and gsm chunks are typically too elementary or too synthetic to help with a serious competition-level problem. They dominate the corpus by volume but are rarely the most relevant source. When your query is at a comparable level to the AMC/AIME/theorem-application, you probably want to focus search on 'aops', 'math.*', or 'theoremqa' tree labels and filter out the noise.
+The aqua, camel, and gsm chunks are typically too elementary or too synthetic to help with a serious competition-level problem. They dominate the corpus by volume but are rarely the most relevant source. When your query is at a comparable level to AMC/AIME/theorem-application, focus search on aops, math_test, math_train, theoremqa.
 
 Strategy:
 1. Identify the mathematical techniques the problem requires (e.g. "Vieta's formulas", "Newton's identities", "polynomial roots", "modular arithmetic"). Search for each technique by name.
 2. Search for problem structure (e.g. "polynomial whose roots are...", "triangle with integer side lengths"). The MATH dataset chunks often phrase problems similarly.
-3. Use treeMatch to restrict noisy sources when a search returns mostly low-signal candidates. For a competition problem, a treeMatch like '{aops,math.test,math.train,theoremqa}' usually improves signal vs. a broad search that's dominated by aqua/camel/gsm noise. Start WITHOUT treeMatch so you can see what the corpus surfaces; add treeMatch on a follow-up search if the results are overwhelmed by aqua/camel/gsm. Observe the tree labels in results and pick patterns accordingly.
+3. Use treeMatch to restrict noisy sources. The lquery syntax to restrict to the four useful sources is exactly: treeMatch = "aops|math_test|math_train|theoremqa" (a pipe-separated single-position alternation — do NOT use curly braces {} and do NOT put dots in labels; those are syntax errors). Start WITHOUT treeMatch to see what the corpus surfaces, then add treeMatch on follow-up searches when aqua/camel/gsm noise dominates.
 4. Do at least 5-7 searches covering different technique names and phrasings.
 
 IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. Only use grep for highly distinctive literal terms you're confident must appear verbatim. Default empty.

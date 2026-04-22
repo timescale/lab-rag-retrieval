@@ -845,3 +845,62 @@ aops re-evaluated: 0.081 → 0.241. Mean across all 12 domains now: **0.347** (u
 ### Generalizable finding
 
 **Silent server-side filtering beats client-side post-hoc filtering whenever exclusion lists are too large to pass through the agent.** For benchmarks with per-query exclusions (BRIGHT's reasoning tier on math domains, any benchmark using near-duplicate filters), the MCP server should apply filters invisibly. The agent can't know 9,200 IDs; making the list size its problem is a design bug.
+
+---
+
+## Bug + fix: broken lquery syntax in tree-directive prompt (2026-04-22)
+
+### Diagnosis
+
+Post-facto check on the "aops 0.241" run found that the tree labels used multi-position paths (`math.test`, `math.train`) and the prompt suggested the lquery pattern `{aops,math.test,math.train,theoremqa}`. Direct testing:
+
+| Pattern | Behaviour |
+|---------|----------|
+| `{aops,math.test,math.train,theoremqa}` | SYNTAX ERROR |
+| `aops\|math.test\|math.train\|theoremqa` | 0 results (compound labels can't appear inside single-position `\|`) |
+| `aops.*\|math.*\|theoremqa.*` | SYNTAX ERROR |
+| `aops` | 62 ✓ |
+| `math.*` | 12,500 ✓ |
+
+628 of 1,467 tool calls in the aops run used broken treeMatch patterns that returned 0 (or errored silently). The 0.241 score was achieved *despite* treeMatch not actually working — the gain came from silent exclusion + general search vocabulary, not from tree filtering.
+
+### Fix
+
+1. `brightSourceTree`: return single-label paths (`math_test`, `math_train`) instead of compound (`math.test`, `math.train`). Flat labels allow `|` alternation within lquery.
+2. SQL migration on existing bright_aops: `UPDATE bright_aops SET tree = replace(tree::text, '.', '_')::ltree WHERE tree::text LIKE 'math.%'`.
+3. Updated prompt: `treeMatch = "aops|math_test|math_train|theoremqa"` (pipe-separated, single-position) with an explicit warning against `{...}` and dots-in-labels. Verified: `12,971` matches (62 + 5,000 + 7,500 + 409), correct.
+
+### Result (aops, full 111 queries, Haiku, tree prompt + silent exclusion + fixed lquery)
+
+| Metric | Broken lquery | Fixed lquery | Δ |
+|--------|---------------|--------------|---|
+| **nDCG@10** | 0.241 | **0.275** | +0.034 |
+| Retrieval recall | 0.361 | **0.466** | +0.105 |
+| Ranking recall | 0.249 | **0.298** | +0.049 |
+| Zero-gold queries | 36/111 | 27/111 | -9 |
+| Avg tool calls | 16.9 | 11.0 | -5.9 |
+
+treeMatch usage: 42.8% → **86.5%**. Empty-result treeMatch calls: ~most → 0.9%. Dominant pattern: `aops|math_test|math_train|theoremqa` (988/1058 calls). Agent immediately adopted the corrected recipe.
+
+### Analysis
+
+Two effects combined:
+1. Filter now actually fires: aqua/camel/gsm results silently removed, pool quality jumps.
+2. Agent needs fewer iterations (16.9 → 11.0 tool calls) — was previously wasting calls retrying after broken lquery returned 0.
+
+### Cumulative aops story
+
+| Config | nDCG@10 | cumulative Δ |
+|--------|---------|---------------|
+| Baseline default MCP | 0.081 | — |
+| + tree-aware MCP (latent) | 0.087 | +0.006 |
+| + math prompt (directs treeMatch, broken lquery) | 0.169 | +0.082 |
+| + silent per-query exclusion | 0.241 | +0.072 |
+| + fixed lquery syntax | **0.275** | +0.034 |
+| **Total** | | **+0.194 (3.4×)** |
+
+### Generalizable finding
+
+**Test the actual query mechanism end-to-end, not just the prompt's words.** The prompt's suggested lquery pattern "looked right" to me (copying natural language "{A,B,C}" set notation) but postgres lquery doesn't parse that syntax for compound labels. The only reason we caught it is that I manually tested representative patterns against the DB. Without that check, the 0.241 run would have been a plausible-but-partially-fake result — the treeMatch wasn't working, even though treeMatch usage metrics looked high.
+
+Lesson for future infrastructure: always run a smoke test on whatever pattern the prompt suggests before trusting the aggregate numbers.
