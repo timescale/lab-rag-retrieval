@@ -904,3 +904,61 @@ Two effects combined:
 **Test the actual query mechanism end-to-end, not just the prompt's words.** The prompt's suggested lquery pattern "looked right" to me (copying natural language "{A,B,C}" set notation) but postgres lquery doesn't parse that syntax for compound labels. The only reason we caught it is that I manually tested representative patterns against the DB. Without that check, the 0.241 run would have been a plausible-but-partially-fake result — the treeMatch wasn't working, even though treeMatch usage metrics looked high.
 
 Lesson for future infrastructure: always run a smoke test on whatever pattern the prompt suggests before trusting the aggregate numbers.
+
+---
+
+## aops candidate-pool / search-mode experiments (2026-04-22)
+
+Three A/B tests against the 0.275 baseline to see if retrieval or ranking volume matters:
+
+| Experiment | Change | nDCG | Δ vs 0.275 | Notes |
+|------------|--------|------|-----------|-------|
+| Exp 1 | candidateLimit 30 → 100 | 0.268 | -0.007 | More candidates didn't help — added noise dilutes signal |
+| Exp 2 | limit 10 → 30 | 0.265 | -0.010 | Agent seeing 30 results per search instead of 10 slightly hurt |
+| Exp 3 | dual-mode (Kind A RRF + Kind B semantic-only setup-structure) | 0.266 | -0.009 | Retrieval recall dropped 7pp: "setup-structure" searches collapsed into paraphrased-technique-names for abstract-math queries |
+
+All reverted. Takeaway: **on aops, volume and search-mode variation are local optima**. More candidates don't help because Haiku's ranking can't exploit them; varying search modes doesn't help because abstract-math queries don't have a distinct "scenario" grammar separate from their technique.
+
+---
+
+## Experiment: HyDE-style hypothetical sibling problem retrieval (2026-04-22)
+
+### Hypothesis
+
+On aops, gold is usually a sibling problem in the same concept cluster — another concrete problem (different setup: bricks, stamps, coins) that uses the same underlying technique. The agent's abstract-technique-name queries ("Frobenius number", "Diophantine equations") don't embed close to concrete problem statements.
+
+HyDE hypothesis: if the agent WRITES a hypothetical sibling problem (concrete setup, same technique) and uses that as a semantic search, the embedding will be closer to real sibling problems than the abstract query would be.
+
+### Change
+
+Added step 3 to the math prompt:
+> HYPOTHETICAL SIBLING PROBLEM: imagine a DIFFERENT math problem that would use the SAME techniques as this query — with different concrete objects and numbers but the same underlying structure. Write a short (~3-sentence) problem statement for this hypothetical sibling, then pass it as the "semantic" parameter (leave fulltext empty). Gold for a query is often a real sibling problem, and sibling problems embed closer to each other than either does to abstract technique names. Do 2-3 hypothetical-sibling searches covering varied concrete setups.
+
+### Result (aops, full 111 queries, Haiku)
+
+| Metric | Baseline (lquery fix) | + hypothetical sibling | Δ | Paired-t p | Sign | Sign p |
+|--------|------------------------|------------------------|---|-----------|------|--------|
+| **nDCG@10** | 0.275 | **0.300** | **+0.025** | 0.28 | 43/32 | 0.25 |
+| Retrieval recall | 0.466 | 0.438 | -0.027 | 0.35 | 32/38 | 0.55 |
+| Ranking recall | 0.298 | 0.316 | +0.018 | 0.52 | 34/23 | 0.19 |
+| Zero-gold | 27 | 25 | -2 | — | — | — |
+
+Not statistically significant (nDCG sign-p=0.25) but positive direction. Biggest non-infrastructure gain since the lquery syntax fix.
+
+### Analysis (surprise)
+
+Counterintuitive shape: retrieval recall went slightly DOWN (−0.027) while nDCG went UP. This means: hypothetical-sibling searches surface slightly fewer gold docs in absolute terms, but the gold they do find is of higher *rankable* quality — the agent has a cleaner context to rank from, and more of the gold makes it into top-10.
+
+Likely explanation: concrete-problem-style queries match concrete-problem gold (and noisy concrete-problem non-gold), so retrieval sometimes misses theory-article gold that the original concept queries would catch. But the sibling-problem gold (the majority case on aops) is richer and ranks better.
+
+### Decision
+
+**Kept provisionally** — not significant but direction is consistent with HyDE literature. Low-risk addition (one prompt step). If a follow-up experiment regresses and we suspect interference, revisit.
+
+### Remaining aops gap
+
+Ranking-recall drop rate (what fraction of *seen* gold never makes top-10):
+- Baseline: 1 − 0.298/0.466 = **36%** dropped post-retrieval
+- Exp 5: 1 − 0.316/0.438 = **28%** dropped — improvement
+
+Retrieval recall is still the larger bottleneck absolutely (only 43.8% of gold ever seen). Pure prompt-level interventions seem exhausted. Further gain likely needs: (a) Sonnet for richer hypothetical-sibling generation and better ranking, (b) corpus-side chunk enrichment (technique tags per chunk), or (c) larger embedding model to distinguish math-problem structure better.
