@@ -10,6 +10,7 @@ import { readFileSync, existsSync } from "node:fs";
 import postgres from "postgres";
 import { embed } from "./memory.ts";
 import { TABLE_NAME } from "./config.ts";
+import { TECHNIQUES_LIST, CATEGORIES_LIST } from "./taxonomy.ts";
 
 const RRF_K = 60;
 
@@ -45,8 +46,8 @@ server.tool(
     grep: z.string().nullable().describe("Regex pattern (case-insensitive). HARD AND filter on all other modes — use only for highly distinctive literal terms you KNOW must appear verbatim. Leave empty when unsure."),
     excludeIds: z.array(z.string()).nullable().describe("Document IDs to exclude from results. Filtered out silently across all modes before returning."),
     treeMatch: z.string().nullable().describe("ltree lquery pattern to restrict results by source label (e.g. 'aops|math_train|math_test|theoremqa')."),
-    techniquesAny: z.array(z.string()).nullable().describe("Filter: keep only docs whose meta.techniques array overlaps with any of these tags. Canonical technique names (lowercase_with_underscores): frobenius_number, vieta_formulas, newtons_identities, modular_arithmetic, pigeonhole, inclusion_exclusion, pythagorean_theorem, power_of_a_point, coordinate_geometry, simons_favorite_factoring_trick, etc. Only the useful sources have these tags; aqua/camel/gsm rows return nothing if this filter is used."),
-    categoryAny: z.array(z.string()).nullable().describe("Filter: keep only docs whose meta.category is one of these. Categories: algebra | number_theory | geometry | combinatorics | probability | calculus | analysis | linear_algebra | discrete_math | trigonometry | logic | other. Only the useful sources have meta; aqua/camel/gsm rows return nothing if this filter is used."),
+    techniquesAny: z.array(z.string()).nullable().describe(`Filter: keep only docs whose meta.techniques array overlaps with any of these tags. Only the useful sources have tags; aqua/camel/gsm rows return nothing if this filter is used. Canonical technique names (lowercase_with_underscores): ${TECHNIQUES_LIST}.`),
+    categoryAny: z.array(z.string()).nullable().describe(`Filter: keep only docs whose meta.category is one of these. Only the useful sources have meta; aqua/camel/gsm rows return nothing if this filter is used. Categories: ${CATEGORIES_LIST}.`),
     candidateLimit: z.number().int().min(0).max(1000).describe("Candidates per search mode before RRF fusion (0 = default 30)"),
     limit: z.number().int().min(0).max(1000).describe("Maximum results (0 = default 10)"),
   },

@@ -10,6 +10,7 @@
 
 import { embedWithCache } from "./embed-cache.ts";
 import { TABLE_NAME, brightSourceTree } from "./config.ts";
+import { TECHNIQUES_LIST, CATEGORIES_LIST } from "./taxonomy.ts";
 import type { Sql, CorpusDoc } from "./types.ts";
 import type { BrightDocument } from "./types_bright.ts";
 
@@ -377,7 +378,7 @@ The aqua, camel, and gsm chunks are typically too elementary or too synthetic to
 
 The useful sources (aops / math_test / math_train / theoremqa) also carry pre-computed metadata tags on each chunk — visible in results as "cat: <category>, tech: [tag1,tag2,...]". You can filter by these with the techniquesAny and categoryAny parameters.
 
-Canonical technique tags include: vieta_formulas, newtons_identities, frobenius_number, chicken_mcnugget, modular_arithmetic, prime_factorization, euclidean_algorithm, diophantine_equations, linear_diophantine, fermats_little_theorem, eulers_totient, chinese_remainder_theorem, polynomial_roots, factor_theorem, symmetric_functions, simons_favorite_factoring_trick, pigeonhole, inclusion_exclusion, stars_and_bars, binomial_theorem, multiplication_principle, pythagorean_theorem, law_of_cosines, power_of_a_point, similar_triangles, angle_chasing, mass_point, coordinate_geometry, picks_theorem, am_gm_inequality, cauchy_schwarz, linear_recurrence, fibonacci_recurrence, trigonometric_identities, limit_computation, fundamental_theorem_of_calculus, substitution_integral, matrix_multiplication, determinant, eigenvalues, group_theory. Categories: algebra | number_theory | geometry | combinatorics | probability | calculus | analysis | linear_algebra | discrete_math | trigonometry | logic | other.
+Canonical technique tags: ${TECHNIQUES_LIST}. Categories: ${CATEGORIES_LIST}.
 
 Strategy:
 1. Identify the mathematical techniques the problem requires (e.g. "Vieta's formulas", "Newton's identities", "polynomial roots", "modular arithmetic"). Search for each technique by name (semantic + fulltext together).
