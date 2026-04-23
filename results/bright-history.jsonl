@@ -37,3 +37,4 @@
 {"timestamp":"2026-04-22T10:48:33.459Z","domain":"aops","ndcg10":0.2647,"retrievalRecall":0.4479,"rankingRecall":0.2787,"queries":111,"description":"exp2: limit 30 (from 10), candidateLimit back to 30"}
 {"timestamp":"2026-04-22T13:28:09.411Z","domain":"aops","ndcg10":0.2656,"retrievalRecall":0.3949,"rankingRecall":0.2652,"queries":111,"description":"exp3: Kind A (hybrid) + Kind B (semantic-only)"}
 {"timestamp":"2026-04-22T14:13:29.116Z","domain":"aops","ndcg10":0.2999,"retrievalRecall":0.4385,"rankingRecall":0.3157,"queries":111,"description":"exp5: hypothetical sibling problem retrieval (HyDE-style)"}
+{"timestamp":"2026-04-23T07:23:02.487Z","domain":"aops","ndcg10":0.3278,"retrievalRecall":0.5353,"rankingRecall":0.3721,"queries":111,"description":"exp6: tag-based retrieval (techniquesAny + categoryAny)"}

@@ -4,11 +4,19 @@
 // text-embedding-3-small). This avoids brittle chars/token heuristics that
 // were tripping over LaTeX, code, and long docs.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { getEncoding, type Tiktoken } from "js-tiktoken";
+import { createFileCache } from "./file-cache.ts";
 
-const EMBEDDING_CACHE_DIR = "data/embedding_cache";
+const cache = createFileCache<number[][]>("data/embedding_cache");
+
+// Must match the legacy hashing scheme so pre-refactor cache entries still hit.
+function batchCacheKey(cachePrefix: string, texts: string[]): string {
+  const h = createHash("sha256");
+  h.update(cachePrefix);
+  for (const t of texts) h.update(`\n${t}`);
+  return h.digest("hex");
+}
 
 // Hard limits from OpenAI:
 // - Per-request total: 300k tokens
@@ -21,24 +29,6 @@ let _enc: Tiktoken | null = null;
 function enc(): Tiktoken {
   if (!_enc) _enc = getEncoding("cl100k_base");
   return _enc;
-}
-
-function batchCacheKey(cachePrefix: string, texts: string[]): string {
-  const h = createHash("sha256");
-  h.update(cachePrefix);
-  for (const t of texts) h.update(`\n${t}`);
-  return h.digest("hex");
-}
-
-function loadCached(key: string): number[][] | null {
-  const path = `${EMBEDDING_CACHE_DIR}/${key}.json`;
-  if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, "utf-8"));
-}
-
-function saveCache(key: string, embeddings: number[][]): void {
-  mkdirSync(EMBEDDING_CACHE_DIR, { recursive: true });
-  writeFileSync(`${EMBEDDING_CACHE_DIR}/${key}.json`, JSON.stringify(embeddings));
 }
 
 /** Ensure every doc fits the per-doc token limit, truncating if needed. */
@@ -108,14 +98,14 @@ export async function embedWithCache(
 
   for (const batch of batches) {
     const key = batchCacheKey(cachePrefix, batch);
-    const hit = loadCached(key);
+    const hit = cache.get(key);
     if (hit) {
       all.push(...hit);
       cached += batch.length;
       continue;
     }
     const batchEmbeddings = await embedFn(batch);
-    saveCache(key, batchEmbeddings);
+    cache.set(key, batchEmbeddings);
     all.push(...batchEmbeddings);
     fetched += batch.length;
   }

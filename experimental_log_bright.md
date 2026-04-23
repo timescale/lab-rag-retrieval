@@ -962,3 +962,113 @@ Ranking-recall drop rate (what fraction of *seen* gold never makes top-10):
 - Exp 5: 1 − 0.316/0.438 = **28%** dropped — improvement
 
 Retrieval recall is still the larger bottleneck absolutely (only 43.8% of gold ever seen). Pure prompt-level interventions seem exhausted. Further gain likely needs: (a) Sonnet for richer hypothetical-sibling generation and better ranking, (b) corpus-side chunk enrichment (technique tags per chunk), or (c) larger embedding model to distinguish math-problem structure better.
+
+---
+
+## Experiment: Corpus-side technique tagging + tag-based retrieval (2026-04-23)
+
+### Taxonomy derivation (methodology)
+
+Goal: per-chunk mathematical-technique tags so retrieval can join concept-cluster siblings deterministically (not via embedding similarity, which doesn't bridge "ducks-and-horses" to "brick-stacking" even though both are Frobenius problems).
+
+Four iterations:
+
+1. **Strawman taxonomy (rejected)** — wrote ~20 techniques from prior knowledge (Vieta, Newton's, Frobenius, pigeonhole, etc.). Called out as probably incomplete; not corpus-calibrated.
+
+2. **First empirical sample (442 chunks, gpt-4o-mini, stratified across 7 tree sources)** — output too coarse. Model preferred categories ("algebra", "combinatorics", "basic_arithmetic") over named theorems. Frobenius / Newton's / Diophantine had 0 hits in top-40.
+
+3. **Second sample (same 442 chunks, Claude Haiku, richer prompt with seed vocabulary + "prefer specific over generic" rule)** — named techniques emerged: modular_arithmetic (30), prime_factorization (23), pythagorean_theorem (15), power_of_a_point (7), diophantine_equations (6), vieta_formulas (6), fermats_little_theorem (5), simons_favorite_factoring_trick (3), picks_theorem (2).
+
+4. **Spot-check validation (3 concept-cluster pairs with known failures)** — Haiku-tagged:
+   - Frobenius cluster (Hamlet/bricks/stamps): **3/3 share `frobenius_number`** ✓
+   - Newton's/Vieta cluster: 1 shares `polynomial_roots`; 1 no overlap (siblings use genuinely different techniques)
+   - Simon's trick cluster: **3/3 share `simons_favorite_factoring_trick`** ✓
+   - 5/6 gold chunks share a specific technique tag with their query — strong signal.
+
+Prompt finalized with empirically-observed vocabulary and an explicit priority rule ("prefer Frobenius over generic Diophantine; prefer Newton's over generic polynomial_roots").
+
+### Production tagging
+
+Gpt-4o-mini was tried but failed internal-consistency check on the same clusters (tagged Hamlet as "pigeonhole" instead of "frobenius"; 0/3 shared tags on Frobenius cluster). Switched to Haiku via `claude -p`.
+
+Scoped to the 4 useful sources only (aops + math_test + math_train + theoremqa = 12,971 chunks), skipping 175k aqua/camel/gsm noise that's already filterable via tree. Final run at concurrency 20 (tried 80 — system load avg hit 225, thrashing; tried 40 — same 1.2/s rate as 20, apparently upstream bottleneck).
+
+- **12,971/12,971 tagged in 7.4 hours, 3 errors (0.023%)**.
+- Stored in new jsonb `meta` column; GIN index with `jsonb_path_ops` class.
+- File-based cache keyed by (PROMPT_VERSION, content) so subsequent re-tags or the theoremqa_questions table (same corpus) will be free.
+- Extracted `createFileCache<T>` primitive from embed-cache.ts; tagging and embedding both use it.
+
+### Tag distribution (top 20)
+
+coordinate_geometry (1354), solving_equations (1297), basic_arithmetic (1260), polynomial_roots (1090), modular_arithmetic (797), multiplication_principle (731), prime_factorization (689), pythagorean_theorem (611), trigonometric_identities (576), word_problem_algebra (551), angle_chasing (491), combinatorial_probability (482), ratios_proportions (467), vieta_formulas (424), factor_theorem (324), similar_triangles (314), binomial_theorem (286), counting (284), inclusion_exclusion (178), am_gm_inequality (176). Healthy distribution — specific named theorems well-represented alongside general labels.
+
+### MCP changes
+
+Added two new search parameters to the aops MCP variant:
+
+- `techniquesAny: string[] | null` — keep only chunks whose `meta.techniques` array overlaps any of these tags.
+- `categoryAny: string[] | null` — keep only chunks whose `meta.category` is in this list.
+
+Implementation: SQL clause is `(meta @> $n::text::jsonb OR meta @> $m::text::jsonb OR ...)` — an explicit OR chain. Each `@>` uses the GIN index via BitmapOr (verified with EXPLAIN). Two abandoned variants:
+- `meta->'techniques' ?| $n::text[]` — works but the `?|` operator doesn't use a `jsonb_path_ops` index.
+- `meta @> ANY($n::jsonb[])` — doesn't handle postgres.js's JSON-string double-wrapping cleanly; when fixed via ARRAY-from-subquery, the planner falls back to Seq Scan (loses the index).
+
+The `::text::jsonb` double-cast is required because postgres.js wraps a plain string param as a JSON string literal when bound as `::jsonb` directly.
+
+Result lines now include `cat: <category>, tech: [t1,t2,...]` so the agent observes tags and can refine.
+
+### Prompt changes
+
+Added to the math prompt:
+- List of canonical technique tags (the ~40 most useful from the distribution, named explicitly).
+- Category values.
+- Step 4: "TAG-BASED RETRIEVAL: once you've identified the techniques, try one search with techniquesAny set to those canonical tags. Be specific — use frobenius_number rather than generic diophantine_equations."
+
+### Result (aops, full 111 queries, Haiku)
+
+| Metric | Prior (HyDE baseline) | + tag-based retrieval | Δ |
+|--------|------------------------|------------------------|---|
+| **nDCG@10** | 0.300 | **0.328** | **+0.028** |
+| **Retrieval recall** | 0.438 | **0.535** | **+0.097** |
+| Ranking recall | 0.316 | 0.372 | +0.056 |
+| Zero-gold queries | 25 | 19 | -6 |
+| Avg tool calls | 10.7 | 11.2 | +0.5 |
+
+Tag usage: techniquesAny in 31.7% of calls, categoryAny in 45.2%. Top tags the agent chose: modular_arithmetic (65), coordinate_geometry (65), power_of_a_point (38), vieta_formulas (31), inclusion_exclusion (31), frobenius_number (25), similar_triangles (24), diophantine_equations (23), stars_and_bars (21), simons_favorite_factoring_trick (14) — the exact diagnostic techniques we built the taxonomy for.
+
+13% empty-result rate on tag calls (51/394) — reasonable. Usually happens when the agent guesses a tag that doesn't exist in our canonical set; the agent iterates.
+
+### Analysis
+
+Retrieval recall +9.7pp is the biggest single retrieval improvement in this work. Three mechanisms:
+
+1. **Deterministic concept joining**: a query tagged `frobenius_number` now retrieves all 25+ frobenius chunks via the tag filter, regardless of surface vocabulary. The ducks-vs-bricks embedding gap is bypassed.
+2. **Category coarse filter**: the agent often uses categoryAny to restrict to the right math area (number_theory / combinatorics / geometry), pre-filtering noise.
+3. **Agent compliance**: the taxonomy in the prompt + the meta in result lines makes the agent's tag selection grounded (it sees valid tags in prior results). 13% dead-end rate vs 50%+ on broken lquery proves the prompt-side taxonomy works.
+
+### Cumulative aops story
+
+| Layer | nDCG@10 | Δ |
+|-------|---------|---|
+| Baseline default MCP | 0.081 | — |
+| + tree-aware MCP (latent) | 0.087 | +0.006 |
+| + tree-directive prompt | 0.169 | +0.082 |
+| + silent exclusion | 0.241 | +0.072 |
+| + fixed lquery | 0.275 | +0.034 |
+| + HyDE hypothetical sibling | 0.300 | +0.025 |
+| **+ tag-based retrieval** | **0.328** | **+0.028** |
+| **Total** | | **+0.247 (4.0× baseline)** |
+
+### Decision
+
+**Adopted.** Tag infrastructure now part of the aops/theoremqa_questions setup.
+
+### Generalizable findings
+
+1. **Corpus-side structured metadata beats prompt-side guessing.** Prior prompts asked the agent to reason about sibling vocabulary (HyDE) or use soft filters (treeMatch). Hard containment filters on LLM-extracted metadata gave the biggest retrieval jump (+9.7pp) because it bypasses the embedding-similarity bottleneck entirely.
+
+2. **Taxonomy must be empirical, not prior-knowledge.** Our strawman taxonomy would have missed 20+ of the canonical tags that actually dominate the corpus (word_problem_algebra, solving_equations, coordinate_geometry, etc.). Iterating strawman → sample → calibrate → validate is worth the 1-day engineering cost.
+
+3. **Model quality for tagging matters more than model quality for the search agent.** gpt-4o-mini produced unusable tags (0/3 concept-cluster consistency); Haiku produced good tags (5/6). The 7-hour wall cost is worth it. Once tagged, the retrieval agent can be smaller.
+
+4. **jsonb `@> $::text::jsonb` OR chains use the jsonb_path_ops GIN index; `@> ANY(subquery)` does not.** When index performance matters, unfold the OR.

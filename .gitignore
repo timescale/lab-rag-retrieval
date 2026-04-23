@@ -8,4 +8,5 @@ data/corpus.jsonl
 data/dev.jsonl
 data/bright/
 data/embedding_cache/
+data/tag_cache/
 results/eval-*.json

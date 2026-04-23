@@ -38,13 +38,15 @@ const server = new McpServer({
 
 server.tool(
   "me_memory_search",
-  `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — it applies to BOTH semantic and fulltext results, so overly-specific grep patterns silently filter out correct documents that phrase things differently. Only use grep for highly distinctive literal terms you're confident must appear verbatim (rare API names, unique identifiers). Default to leaving grep empty. Use excludeIds to drop specific document IDs. Use treeMatch to filter by source label (an ltree lquery pattern). This corpus blends multiple source types visible as "tree: <label>" in results — observe the labels to see what's available.`,
+  `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — overly-specific grep patterns silently filter out correct documents. Default to leaving grep empty. Use excludeIds to drop specific document IDs. Use treeMatch to filter by source label (lquery pattern). Use techniquesAny / categoryAny to filter by mathematical concept (results have "meta" with techniques + category). The corpus includes pre-computed technique tags on the useful sources (aops / math_test / math_train / theoremqa); aqua/camel/gsm have no meta.`,
   {
     semantic: z.string().nullable().describe("Natural language query for semantic/meaning search"),
     fulltext: z.string().nullable().describe("Keywords/phrases for BM25 exact matching"),
     grep: z.string().nullable().describe("Regex pattern (case-insensitive). HARD AND filter on all other modes — use only for highly distinctive literal terms you KNOW must appear verbatim. Leave empty when unsure."),
     excludeIds: z.array(z.string()).nullable().describe("Document IDs to exclude from results. Filtered out silently across all modes before returning."),
-    treeMatch: z.string().nullable().describe("ltree lquery pattern to restrict results by source label (e.g. 'math.*' matches math.train and math.test; '!camel' excludes camel; check the 'tree:' labels in prior results to see available source types)."),
+    treeMatch: z.string().nullable().describe("ltree lquery pattern to restrict results by source label (e.g. 'aops|math_train|math_test|theoremqa')."),
+    techniquesAny: z.array(z.string()).nullable().describe("Filter: keep only docs whose meta.techniques array overlaps with any of these tags. Canonical technique names (lowercase_with_underscores): frobenius_number, vieta_formulas, newtons_identities, modular_arithmetic, pigeonhole, inclusion_exclusion, pythagorean_theorem, power_of_a_point, coordinate_geometry, simons_favorite_factoring_trick, etc. Only the useful sources have these tags; aqua/camel/gsm rows return nothing if this filter is used."),
+    categoryAny: z.array(z.string()).nullable().describe("Filter: keep only docs whose meta.category is one of these. Categories: algebra | number_theory | geometry | combinatorics | probability | calculus | analysis | linear_algebra | discrete_math | trigonometry | logic | other. Only the useful sources have meta; aqua/camel/gsm rows return nothing if this filter is used."),
     candidateLimit: z.number().int().min(0).max(1000).describe("Candidates per search mode before RRF fusion (0 = default 30)"),
     limit: z.number().int().min(0).max(1000).describe("Maximum results (0 = default 10)"),
   },
@@ -86,10 +88,36 @@ server.tool(
       paramIdx++;
     }
 
+    // techniquesAny / categoryAny: explicit OR of `meta @> $n::text::jsonb`
+    // so each clause uses the jsonb_path_ops GIN index (planner does BitmapOr).
+    // The `::text::jsonb` double-cast is needed because postgres.js wraps
+    // string params as JSON string literals when bound as `::jsonb` directly.
+    const hasTechniques = params.techniquesAny && params.techniquesAny.length > 0;
+    if (hasTechniques) {
+      const ors: string[] = [];
+      for (const t of params.techniquesAny!) {
+        ors.push(`meta @> $${paramIdx}::text::jsonb`);
+        filterValues.push(JSON.stringify({ techniques: [t] }));
+        paramIdx++;
+      }
+      filters.push(`(${ors.join(" OR ")})`);
+    }
+
+    const hasCategory = params.categoryAny && params.categoryAny.length > 0;
+    if (hasCategory) {
+      const ors: string[] = [];
+      for (const c of params.categoryAny!) {
+        ors.push(`meta @> $${paramIdx}::text::jsonb`);
+        filterValues.push(JSON.stringify({ category: c }));
+        paramIdx++;
+      }
+      filters.push(`(${ors.join(" OR ")})`);
+    }
+
     const hasSemantic = params.semantic && params.semantic.length > 0;
     const hasFulltext = params.fulltext && params.fulltext.length > 0;
 
-    let results: Array<{ id: string; content: string; tree: string | null; score: number }>;
+    let results: Array<{ id: string; content: string; tree: string | null; meta: any; score: number }>;
 
     if (hasSemantic || hasFulltext) {
       const bm25Results: Array<{ id: string }> = [];
@@ -137,6 +165,24 @@ server.tool(
           semFilterValues.push(params.treeMatch);
           semParamIdx++;
         }
+        if (hasTechniques) {
+          const ors: string[] = [];
+          for (const t of params.techniquesAny!) {
+            ors.push(`meta @> $${semParamIdx}::text::jsonb`);
+            semFilterValues.push(JSON.stringify({ techniques: [t] }));
+            semParamIdx++;
+          }
+          semFilters.push(`(${ors.join(" OR ")})`);
+        }
+        if (hasCategory) {
+          const ors: string[] = [];
+          for (const c of params.categoryAny!) {
+            ors.push(`meta @> $${semParamIdx}::text::jsonb`);
+            semFilterValues.push(JSON.stringify({ category: c }));
+            semParamIdx++;
+          }
+          semFilters.push(`(${ors.join(" OR ")})`);
+        }
         const semFilterClause = semFilters.length > 0 ? " AND " + semFilters.join(" AND ") : "";
         const sem = await sql.unsafe<Array<{ id: string }>>(
           `SELECT id FROM ${ACTIVE_TABLE}
@@ -167,8 +213,8 @@ server.tool(
         return { content: [{ type: "text" as const, text: "No results found." }] };
       }
 
-      const rows = await sql.unsafe<Array<{ id: string; content: string; tree: string | null }>>(
-        `SELECT id, content, tree::text as tree FROM ${ACTIVE_TABLE} WHERE id = ANY($1::text[])`,
+      const rows = await sql.unsafe<Array<{ id: string; content: string; tree: string | null; meta: any }>>(
+        `SELECT id, content, tree::text as tree, meta FROM ${ACTIVE_TABLE} WHERE id = ANY($1::text[])`,
         [topIds.map((r) => r.id)],
       );
 
@@ -185,14 +231,32 @@ server.tool(
       if (hasExclude) { clauses.push(`id != ALL($${idx}::text[])`); qparams.push(params.excludeIds); idx++; }
       if (HAS_SILENT_EXCLUSIONS) { clauses.push(`id != ALL($${idx}::text[])`); qparams.push(SILENT_EXCLUDED_IDS); idx++; }
       if (hasTreeMatch) { clauses.push(`tree ~ $${idx}::lquery`); qparams.push(params.treeMatch); idx++; }
+      if (hasTechniques) {
+        const ors: string[] = [];
+        for (const t of params.techniquesAny!) {
+          ors.push(`meta @> $${idx}::text::jsonb`);
+          qparams.push(JSON.stringify({ techniques: [t] }));
+          idx++;
+        }
+        clauses.push(`(${ors.join(" OR ")})`);
+      }
+      if (hasCategory) {
+        const ors: string[] = [];
+        for (const c of params.categoryAny!) {
+          ors.push(`meta @> $${idx}::text::jsonb`);
+          qparams.push(JSON.stringify({ category: c }));
+          idx++;
+        }
+        clauses.push(`(${ors.join(" OR ")})`);
+      }
       const extra = clauses.length > 0 ? " AND " + clauses.join(" AND ") : "";
       const rows = await sql.unsafe<Array<{ id: string; content: string; tree: string | null }>>(
-        `SELECT id, content, tree::text as tree FROM ${ACTIVE_TABLE}
+        `SELECT id, content, tree::text as tree, meta FROM ${ACTIVE_TABLE}
          WHERE content ~* $1${extra}
          ORDER BY created_at DESC
          LIMIT $2`,
         qparams as any[],
-      );
+      ) as any as Array<{ id: string; content: string; tree: string | null; meta: any }>;
       results = rows.map((r) => ({ ...r, score: 0 }));
     } else {
       return { content: [{ type: "text" as const, text: "No search query provided." }] };
@@ -200,7 +264,10 @@ server.tool(
 
     const lines = results.map((r, i) => {
       const treeLabel = r.tree ? `, tree: ${r.tree}` : "";
-      return `${i + 1}. ${r.content} (id: ${r.id}${treeLabel})`;
+      const cat = r.meta?.category ? `, cat: ${r.meta.category}` : "";
+      const techs = Array.isArray(r.meta?.techniques) && r.meta.techniques.length > 0
+        ? `, tech: [${r.meta.techniques.join(",")}]` : "";
+      return `${i + 1}. ${r.content} (id: ${r.id}${treeLabel}${cat}${techs})`;
     });
 
     timings.total_ms = Math.round(performance.now() - t0);

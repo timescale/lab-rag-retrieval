@@ -14,10 +14,12 @@ export async function createCorpusTable(sql: any, tableName: string): Promise<vo
       id         text PRIMARY KEY,
       content    text NOT NULL,
       tree       ltree,
+      meta       jsonb,
       embedding  halfvec(1536),
       created_at timestamptz NOT NULL DEFAULT now()
     )
   `);
+  await sql.unsafe(`CREATE INDEX ${tableName}_meta_gin_idx ON ${tableName} USING gin (meta jsonb_path_ops)`);
   const [row] = await sql.unsafe(`SELECT count(*)::int as count FROM ${tableName}`);
   console.log(`Done. ${tableName} table has ${row!.count} rows.`);
 }
