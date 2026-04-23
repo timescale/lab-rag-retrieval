@@ -1072,3 +1072,52 @@ Retrieval recall +9.7pp is the biggest single retrieval improvement in this work
 3. **Model quality for tagging matters more than model quality for the search agent.** gpt-4o-mini produced unusable tags (0/3 concept-cluster consistency); Haiku produced good tags (5/6). The 7-hour wall cost is worth it. Once tagged, the retrieval agent can be smaller.
 
 4. **jsonb `@> $::text::jsonb` OR chains use the jsonb_path_ops GIN index; `@> ANY(subquery)` does not.** When index performance matters, unfold the OR.
+
+---
+
+## Experiment: Sonnet on aops with full stack (2026-04-23)
+
+### Hypothesis
+
+On economics, Sonnet gave +0.104 nDCG over Haiku (p=0.002), concentrated in ranking recall (+0.101). Test whether the model lever is similarly strong on aops, now that the infrastructure stack (tree + silent exclusion + HyDE + tag-based retrieval) is in place.
+
+### Result (aops, full 111 queries, paired vs Haiku same stack)
+
+| Metric | Haiku | Sonnet | Δ |
+|--------|-------|--------|---|
+| **nDCG@10** | 0.328 | **0.333** | **+0.005** |
+| Retrieval recall | 0.535 | **0.603** | **+0.068** |
+| Ranking recall | 0.372 | 0.397 | +0.025 |
+| Zero-gold queries | 19 | **11** | -8 |
+| Avg tool calls | 11.2 | 15.1 | +3.9 |
+| Wall time | ~27 min | **130 min** | +4.8× |
+
+Tag usage: techniquesAny 30.1% (vs Haiku 31.7%) but only 5 empty-result calls (1%) vs Haiku's 51 (13%) — Sonnet picks better tags.
+
+### Analysis — why Sonnet barely moves the needle
+
+Retrieval recall +6.8pp but nDCG only +0.005. Drop-rate math:
+- Haiku: 1 − 0.372/0.535 = 30.5% of retrieved gold dropped post-ranking
+- Sonnet: 1 − 0.397/0.603 = 34.1% dropped
+
+Sonnet retrieves *more* gold but keeps a *smaller fraction* in top-10. With +3.9 more tool calls and richer hypothetical-sibling generation, it floods its ranking step with more candidates than it can properly rank. On economics this didn't happen (retrieval pool was smaller); on aops the volume increase hurts ranking efficiency.
+
+Contrast with economics:
+- Economics Sonnet: nDCG +0.104, ranking recall +0.101 (p=0.0008). Strong ranking win.
+- aops Sonnet: nDCG +0.005, ranking recall +0.025. Ranking marginal.
+
+### Interpretation
+
+**Infrastructure has closed most of the Haiku↔Sonnet gap on aops.** When tags + tree + HyDE + silent exclusion are doing the heavy lifting on retrieval, the remaining reasoning headroom is small. The case for Sonnet on aops is weak: +0.005 nDCG for 4.8× wall time.
+
+Contrast with a domain where infrastructure doesn't substitute for reasoning (economics — no corpus taxonomy yet, relies on the agent's knowledge of cited sources): Sonnet's +0.104 nDCG there comes from exactly the reasoning step that tags would replace.
+
+### Decision
+
+**Not adopting Sonnet as default for aops.** The current Haiku + full-stack config is Pareto-dominant given cost/latency.
+
+### Generalizable finding
+
+**Where well-designed corpus-side infrastructure exists, model quality matters less than it does on "pure retrieval" domains.** This suggests an investment ordering: for a new difficult domain, build taxonomy / metadata / filters *before* upgrading the model. Tags turned Haiku into a Sonnet-class retriever on aops; on economics (no tags yet) Sonnet is still ~15pp better.
+
+Opens a question: would tagging economics close its Haiku↔Sonnet gap too? Haiku currently 0.369 / Sonnet 0.462 — a ~25% relative gap entirely attributable to ranking reasoning. If economics had a technique/concept taxonomy, Haiku might approach 0.45+.
