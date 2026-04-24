@@ -1181,3 +1181,48 @@ Possible exceptions worth noting for future work:
 - Cross-encoder rerankers *trained* on the target domain distribution could compete (they inject their own signal).
 - If the agent is constrained to, say, 3 tool calls with structured output, there's less accumulated state and a reranker might add value.
 - Multi-turn refinement (show rerank output back to agent for revision) might beat single-pass if the rounds actually exchange information.
+
+---
+
+## Experiment: Answer-forcing (solve the problem AND rank) on Haiku aops (2026-04-24, reverted)
+
+### Hypothesis
+
+Force the agent to produce the answer to the math problem in addition to ranked_ids. The intuition: CoT-style reasoning-by-output. Having to commit to a solution attempt forces the agent to concretely identify what techniques the problem requires, which should sharpen which docs it ranks as most relevant.
+
+### Change
+
+Added a math-specific JSON schema requiring both `answer` and `ranked_ids`. Updated the math prompt to explain this is reasoning-forcing (answer isn't scored) and ask for a short solution or at minimum a technique identification.
+
+### Result (aops, full 111 queries, Haiku)
+
+| Metric | Baseline (tags) | + answer forcing | Δ |
+|--------|------------------|------------------|---|
+| **nDCG@10** | 0.328 | **0.288** | **-0.040** |
+| Retrieval recall | 0.535 | 0.443 | **-0.092** |
+| Ranking recall | 0.372 | 0.300 | -0.072 |
+| Zero-gold queries | 19 | 24 | +5 |
+| **Avg tool calls** | **11.2** | **8.4** | **-2.8** |
+
+Significant regression across every metric.
+
+### Analysis
+
+The root cause is visible in the tool-call count: the agent ran **2.8 fewer searches per query** when forced to also produce an answer. Output tokens spent on solving the problem meant fewer output tokens left for tool calls, which meant less gold seen during retrieval, which meant less gold to rank.
+
+The intuition may be sound in principle — concretely solving a problem should help identify relevant techniques — but on Haiku the output-token budget is the binding constraint. Reasoning-out-loud competes with tool calls for the same limited budget.
+
+### Decision
+
+**Reverted.** Math schema is back to `ranked_ids` only.
+
+### Generalizable finding
+
+**Haiku's output-token budget is load-bearing.** Whenever we ask it to produce richer output (answer text, chain-of-thought, meta-reasoning), the budget trade comes at the cost of tool calls, and the ranking step loses more than the reasoning gains. This is the same pattern we saw on:
+- Citable-source framing (longer prompt → Haiku underperformed)
+- Deliberation-before-ranking (regressed -3%)
+- Query expansion with verbose instructions (regressed until we narrowed it)
+
+Prompts that expand output obligations (generate-and-rank, justify-and-rank, think-step-by-step-and-rank) all lose on Haiku. The wins we've found are structural (tags, tree filters, silent exclusion, HyDE sibling) — they add retrieval capability without costing output budget.
+
+Might work differently on Sonnet (larger effective output budget, richer reasoning) but untested.
