@@ -261,6 +261,10 @@ async function main() {
           // Belt-and-braces: still strip excluded from final ranking output in case
           // the agent echoes an excluded id it had seen before exclusion was in effect.
           const excludedSet = new Set(realExcluded);
+
+          // Optional second-pass rerank: fresh LLM context with only
+          // (query, candidate contents), avoiding attention dilution from the
+          // agent's tool-call history. Candidates = all unique IDs the agent saw.
           const filteredIds = result.rankedIds.filter((id) => !excludedSet.has(id));
 
           // Compute nDCG@10

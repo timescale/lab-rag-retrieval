@@ -1121,3 +1121,63 @@ Contrast with a domain where infrastructure doesn't substitute for reasoning (ec
 **Where well-designed corpus-side infrastructure exists, model quality matters less than it does on "pure retrieval" domains.** This suggests an investment ordering: for a new difficult domain, build taxonomy / metadata / filters *before* upgrading the model. Tags turned Haiku into a Sonnet-class retriever on aops; on economics (no tags yet) Sonnet is still ~15pp better.
 
 Opens a question: would tagging economics close its Haiku↔Sonnet gap too? Haiku currently 0.369 / Sonnet 0.462 — a ~25% relative gap entirely attributable to ranking reasoning. If economics had a technique/concept taxonomy, Haiku might approach 0.45+.
+
+---
+
+## Experiment: Two-stage rerank on Sonnet aops (2026-04-23, reverted)
+
+### Hypothesis
+
+Sonnet aops had a higher ranking-drop rate than Haiku (34% vs 30%) despite retrieving +7pp more gold. Guess: attention dilution — Sonnet's ranking step competes with 15 tool calls, tag guesses, HyDE generation all sharing the same forward pass. A separate "rerank" call with clean context (just query + candidate contents) might recover the lost ranking precision.
+
+### Change
+
+Added `--rerank` / `--rerank-model` flags to `evaluate-bright.ts`. When enabled, after the agent's search/rank pass:
+1. Collect all unique doc IDs the agent's tool calls retrieved (the candidate pool).
+2. Fetch their content (plus tree + meta for aops) from the DB.
+3. Fresh `claude -p` call with just `(query, candidate[])` → produces a new ranked_ids.
+4. Use that as the final top-10.
+
+Two variants tried:
+- **v1**: minimal rerank prompt (just "rank these by relevance to query"), candidate content only.
+- **v2**: BRIGHT-aware prompt (gold = expert-cited sources, concept-cluster siblings, aqua/camel/gsm noise) plus metadata on each candidate (`tree=`, `category=`, `techniques=[...]`).
+
+### Result (aops, full 111 queries, Sonnet)
+
+| Metric | Sonnet agent-only | + rerank v1 | + rerank v2 | Δ v2 vs agent |
+|--------|-------------------|-------------|--------------|---------------|
+| **nDCG@10** | **0.333** | 0.278 | 0.276 | **-0.057** |
+| Retrieval recall | 0.603 | 0.605 | 0.586 | -0.017 |
+| Ranking recall | **0.397** | 0.343 | 0.337 | **-0.060** |
+| Zero-gold queries | **11** | 11 | 21 | **+10** |
+
+Both variants regressed by ~0.06 on nDCG. V2 made zero-gold queries *worse* (11 → 21) — the reranker actively excluded gold the agent had placed in top-10 for 10 additional queries.
+
+### Analysis — why the clean-context hypothesis failed
+
+1. **The agent's implicit reasoning chain is load-bearing.** By the time Sonnet produces ranked_ids, it has built up context about which of its 15 searches surfaced which doc, which technique tags matched, which tree labels looked promising. A standalone reranker starts fresh and has to infer that context from bare (query, candidate) pairs. Even with metadata annotations, the reranker can't reconstruct "this doc came from the `simons_favorite_factoring_trick` filter" vs "this came from a HyDE sibling search that produced noise."
+
+2. **Rich-context > clean-context on aops.** Sonnet's single-pass ranking has less *absolute* attention but more *signal per attention unit*. The reranker has more attention-per-token but less signal.
+
+3. **Zero-gold regression (+10 queries) proves over-correction.** These are queries where the agent had gold in top-10 and the reranker demoted it. Some attribute of the agent's ranking — provenance-aware reasoning, maybe — isn't reproducible from candidate content alone.
+
+4. **BRIGHT-aware framing didn't save v2.** The agent already has all the same framing (from its prompt). Duplicating it in rerank doesn't add information.
+
+### Contrast with classical IR
+
+Classical IR's "retrieve → rerank" win comes from pairing a cheap/coarse retriever with an expensive/fine ranker. Our setup is different: the "retriever" is already an expensive reasoning agent that decides *what to retrieve* based on rich inference. Reranking with a separate call throws away the agent's reasoning state.
+
+Lesson: **two-stage rerank wins when stage 1 is cheap (dense or BM25); on agent-based retrieval, the agent's own state is the ranking signal, and stage 2 can only discard it.**
+
+### Decision
+
+**Reverted.** Rerank code and flag removed. Agent-native ranking stays.
+
+### Generalizable finding
+
+On agent-driven retrieval + ranking pipelines, the agent's accumulated reasoning state is itself a ranking input. Stripping it out for a "clean context" reranker discards information, not dilution. This probably generalizes: whenever the agent decides *what* to retrieve via reasoning, its ranking benefits from the same reasoning — a separate ranker starting from raw candidates loses that signal.
+
+Possible exceptions worth noting for future work:
+- Cross-encoder rerankers *trained* on the target domain distribution could compete (they inject their own signal).
+- If the agent is constrained to, say, 3 tool calls with structured output, there's less accumulated state and a reranker might add value.
+- Multi-turn refinement (show rerank output back to agent for revision) might beat single-pass if the rounds actually exchange information.

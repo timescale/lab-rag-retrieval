@@ -39,3 +39,5 @@
 {"timestamp":"2026-04-22T14:13:29.116Z","domain":"aops","ndcg10":0.2999,"retrievalRecall":0.4385,"rankingRecall":0.3157,"queries":111,"description":"exp5: hypothetical sibling problem retrieval (HyDE-style)"}
 {"timestamp":"2026-04-23T07:23:02.487Z","domain":"aops","ndcg10":0.3278,"retrievalRecall":0.5353,"rankingRecall":0.3721,"queries":111,"description":"exp6: tag-based retrieval (techniquesAny + categoryAny)"}
 {"timestamp":"2026-04-23T10:48:43.733Z","domain":"aops","ndcg10":0.3335,"retrievalRecall":0.6028,"rankingRecall":0.3972,"queries":111,"description":"sonnet: full stack (tree+silent exclude+HyDE+tags)"}
+{"timestamp":"2026-04-23T13:53:30.062Z","domain":"aops","ndcg10":0.278,"retrievalRecall":0.6054,"rankingRecall":0.3431,"queries":111,"description":"sonnet + rerank (2-stage, clean ranking context)"}
+{"timestamp":"2026-04-23T16:41:45.895Z","domain":"aops","ndcg10":0.2756,"retrievalRecall":0.5855,"rankingRecall":0.3367,"queries":111,"description":"sonnet + rerank v2 (metadata + BRIGHT framing in rerank prompt)"}
