@@ -115,7 +115,7 @@ const SCHEMA = JSON.stringify({
 async function tag(content: string): Promise<any> {
   const proc = Bun.spawn([
     "claude", "-p", PROMPT(content),
-    "--settings", ".claude/settings.json",
+    "--setting-sources", "project",
     "--model", "haiku",
     "--output-format", "json",
     "--json-schema", SCHEMA,

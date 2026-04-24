@@ -89,11 +89,6 @@ function mcpConfigFor(
 const MCP_TOOLS = "mcp__recall__me_memory_search";
 const TIMEOUT_MS = 240_000;
 const MAX_RETRIES = 2;
-// Pinned Claude CLI settings file (copied from ~/.claude/settings.json into
-// this repo's .claude/). Prevents experiments from silently drifting when the
-// user edits their global Claude config between runs. The file is
-// gitignored — each workstation must copy it in on first use.
-const CLAUDE_SETTINGS_PATH = ".claude/settings.json";
 const JSON_SCHEMA = '{"type":"object","properties":{"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
 
 interface ToolCallRecord {
@@ -111,7 +106,7 @@ interface ClaudeResult {
 async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, effort: string): Promise<ClaudeResult> {
   const args = [
     "claude", "-p", prompt,
-    "--settings", CLAUDE_SETTINGS_PATH,
+    "--setting-sources", "project",
     "--output-format", "json", "--verbose", "--model", model,
     "--effort", effort,
     "--json-schema", JSON_SCHEMA,
@@ -237,7 +232,7 @@ Be concise. Do not produce a full derivation.`;
 async function reasonAboutQuery(query: string, model: string, effort: string): Promise<string> {
   const proc = Bun.spawn([
     "claude", "-p", BRIGHT_REASONING_PROMPT(query),
-    "--settings", CLAUDE_SETTINGS_PATH,
+    "--setting-sources", "project",
     "--output-format", "json", "--model", model, "--effort", effort,
   ], { stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
