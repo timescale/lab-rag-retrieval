@@ -26,6 +26,8 @@ function parseArgs() {
   let domain = "";
   let description = "";
   let model = "haiku";
+  let reason = false;
+  let reasonModel = "";
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--samples" && args[i + 1]) {
@@ -40,10 +42,16 @@ function parseArgs() {
     } else if (args[i] === "--model" && args[i + 1]) {
       model = args[i + 1]!;
       i++;
+    } else if (args[i] === "--reason") {
+      reason = true;
+    } else if (args[i] === "--reason-model" && args[i + 1]) {
+      reasonModel = args[i + 1]!;
+      reason = true;
+      i++;
     }
   }
 
-  return { samples, domain, description, model };
+  return { samples, domain, description, model, reason, reasonModel: reasonModel || model };
 }
 
 // ---------------------------------------------------------------------------
@@ -194,11 +202,53 @@ function mean(arr: number[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Pre-computed query reasoning (BRIGHT canonical technique; +12.2 nDCG in
+// the paper). Runs a separate LLM call with the exact prompt from BRIGHT's
+// reference `reason.py` to produce a step-by-step analysis of the query.
+// The reasoning text is prepended to the search agent's prompt so the
+// agent has it as context for planning its searches, without costing its
+// own output-token budget.
+// ---------------------------------------------------------------------------
+// Lean variant of BRIGHT's reasoning prompt: force a brief, technique-focused
+// analysis rather than a full solution. The full solution is ~500-1000 tokens
+// which bloats the agent's prompt and seems to dilute its attention. This
+// version targets ~150 tokens with the diagnostic information (problem type,
+// techniques, solution strategy outline).
+const BRIGHT_REASONING_PROMPT = (query: string) => `${query}
+
+Produce a BRIEF analysis (under 150 words) with three parts:
+1. Problem type: what kind of problem is this in one short phrase (e.g. "quadratic Diophantine equation", "probability via Fibonacci recurrence", "power sums of polynomial roots").
+2. Key techniques: the 2-4 specific named theorems / techniques that apply (e.g. Vieta's formulas, Newton's identities, Frobenius number, Pigeonhole, Chinese Remainder Theorem).
+3. Solution outline: one or two sentences sketching the solution path — the key step, not the full arithmetic.
+
+Be concise. Do not produce a full derivation.`;
+
+async function reasonAboutQuery(query: string, model: string): Promise<string> {
+  const proc = Bun.spawn([
+    "claude", "-p", BRIGHT_REASONING_PROMPT(query),
+    "--output-format", "json", "--model", model,
+  ], { stdout: "pipe", stderr: "pipe" });
+  const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
+  const stdout = await new Response(proc.stdout).text();
+  await proc.exited;
+  clearTimeout(timer);
+  try {
+    const evts = JSON.parse(stdout);
+    for (const evt of (Array.isArray(evts) ? evts : [evts])) {
+      if (evt.type === "result" && typeof evt.result === "string") return evt.result;
+    }
+  } catch {
+    /* fall through */
+  }
+  return ""; // empty reasoning on failure; agent still runs with raw query
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const { samples: maxSamples, domain, description, model } = parseArgs();
+  const { samples: maxSamples, domain, description, model, reason, reasonModel } = parseArgs();
 
   if (!domain) {
     console.error("--domain is required. E.g.: bun run eval:bright -- --domain pony");
@@ -227,7 +277,9 @@ async function main() {
     await sql.end();
     process.exit(1);
   }
-  console.log(`Corpus: ${memRow!.count} documents in ${tableName}\n`);
+  console.log(`Corpus: ${memRow!.count} documents in ${tableName}`);
+  if (reason) console.log(`Reasoning pre-pass: enabled (model=${reasonModel})`);
+  console.log();
   await sql.end();
 
   // Evaluate queries
@@ -246,7 +298,16 @@ async function main() {
       const ex = examples[qi]!;
       promises.push(
         (async () => {
-          const prompt = buildPromptBright(ex.query, domain);
+          let prompt = buildPromptBright(ex.query, domain);
+          if (reason) {
+            const reasoning = await reasonAboutQuery(ex.query, reasonModel);
+            if (reasoning) {
+              // Prepend the reasoning as added context. Keep the original
+              // prompt structure intact so the agent's existing directives
+              // (search tool usage, ranking output format) still apply.
+              prompt = `Before you begin, here is a step-by-step analysis of this query produced by a separate reasoning pass. Use it as context for planning your searches, but follow the task instructions below.\n\n=== REASONING ===\n${reasoning}\n=== END REASONING ===\n\n${prompt}`;
+            }
+          }
 
           // Build per-query MCP config with excluded_ids injected silently via env var.
           const realExcluded = ex.excluded_ids.filter((id) => id !== "N/A");

@@ -1226,3 +1226,82 @@ The intuition may be sound in principle — concretely solving a problem should 
 Prompts that expand output obligations (generate-and-rank, justify-and-rank, think-step-by-step-and-rank) all lose on Haiku. The wins we've found are structural (tags, tree filters, silent exclusion, HyDE sibling) — they add retrieval capability without costing output budget.
 
 Might work differently on Sonnet (larger effective output budget, richer reasoning) but untested.
+
+---
+
+## Experiment H1: Pre-computed query reasoning (BRIGHT canonical) (2026-04-24, declared non-viable after 2 attempts)
+
+### Hypothesis
+
+BRIGHT paper reports +12.2 nDCG from generating LLM reasoning on the query before retrieval (from their reference `reason.py`). We hadn't tried this as a separate pre-pass (previous "answer-forcing" was agent-internal and cost tool calls). Distinct from HyDE (single hypothetical sibling) and two-stage rerank (strips context vs adds context).
+
+Prompt from xlang-ai/BRIGHT/reason.py:
+```
+{query}
+
+Instructions:
+1. Identify the essential problem.
+2. Think step by step to reason and describe what information could be
+   relevant and helpful to address the questions in detail.
+3. Draft an answer with as many thoughts as you have.
+```
+
+### Attempt 1 — Full BRIGHT-style reasoning prepended
+
+Implementation: pre-pass Claude Sonnet call with BRIGHT's exact prompt, prepend the full multi-paragraph output to the agent's prompt as a "REASONING" section. Original query and tool-usage instructions preserved.
+
+Result (aops, full 111 queries, Sonnet, paired vs Sonnet baseline 0.333):
+
+| Metric | Baseline | A1 | Δ | paired-t p | sign p |
+|--------|---------|-----|---|-----------|--------|
+| nDCG@10 | 0.333 | 0.341 | +0.007 | 0.69 | 0.72 |
+| Retrieval recall | 0.603 | 0.580 | -0.023 | 0.41 | 1.00 |
+| Ranking recall | 0.397 | 0.395 | -0.002 | 0.92 | 0.88 |
+| Zero-gold queries | 11 | 16 | +5 | — | — |
+
+nDCG nominally up but retrieval regressed (-0.023) and 5 more queries went to zero-gold. Inspecting a regressed query (Fibonacci-recurrence coin-toss) showed near-identical agent searches but zero gold retrieved vs baseline's 25%. Hypothesis: long Sonnet reasoning (500-1000 token) dilutes attention.
+
+### Attempt 2 — Brief technique-focused reasoning
+
+Correction: constrain the reasoning prompt to produce a short (under 150 words) diagnostic — problem type, 2-4 named techniques, solution outline. No full derivation. Preserves the signal (techniques apply) without bloating the prompt.
+
+Result:
+
+| Metric | Baseline | A2 | Δ | paired-t p | sign p |
+|--------|---------|-----|---|-----------|--------|
+| nDCG@10 | 0.333 | 0.341 | +0.007 | 0.69 | 1.00 |
+| Retrieval recall | 0.603 | 0.612 | +0.009 | 0.73 | 1.00 |
+| Ranking recall | 0.397 | 0.403 | +0.005 | 0.81 | 1.00 |
+| Zero-gold queries | 11 | 17 | +6 | — | — |
+
+Shape improved (all metrics nudged positive, retrieval flipped -0.023 → +0.009 — confirms the "dilution" story) but magnitude is identical on nDCG (+0.007). All p-values 0.69+ for t-test and 1.00 for sign test — noise-level.
+
+### Analysis
+
+BRIGHT paper's +12.2 is on a bare retriever with no tree filters, no technique tags, no silent exclusion, no HyDE, no prompt directing toward canonical techniques. Their reasoning pre-pass was adding signal their base retriever didn't have. Our stack already captures it:
+
+- Reasoning identifies "which techniques apply" → we already extract technique tags per chunk and have the agent filter by them (`techniquesAny`).
+- Reasoning lists "what sibling problems look like" → HyDE already generates this.
+- Reasoning narrows "which source types" → tree labels + math prompt already do this.
+
+What's left is ~+0.007 of marginal headroom, indistinguishable from noise.
+
+### Decision
+
+**Declared non-viable on this stack after 2 attempts.** Not a mechanism problem (A2 shows the technique works) — a diminishing-returns problem. Our infrastructure already encodes the reasoning signal. Kept `--reason` / `--reason-model` flags in evaluate-bright.ts as opt-in (may help on less-instrumented domains), but default off.
+
+### Generalizable finding
+
+**Query-side reasoning preloads substitute for corpus-side structural metadata, not stack with it.** If you've built:
+- Technique tags / topic classification per chunk
+- HyDE hypothetical siblings
+- Tree-level source filters
+- Domain-specific canonical vocabularies in the prompt
+
+...then a separate query-reasoning call is largely redundant. The infrastructure is doing the same work upfront. On a bare-bones retriever the +12.2 headroom exists; on a heavily-instrumented agent retriever, it's been consumed.
+
+This is the mirror of the earlier "corpus-side infrastructure beats prompt-side reasoning" finding. On a bare retriever, prompt-side reasoning is a big win; on an instrumented retriever, the instrumentation already did that work. Invest in structure first, reasoning preloads second.
+
+### Follow-up
+
+Likely to matter MORE on economics (no corpus taxonomy, only a basic expansion prompt) than on aops (tag structure built). Worth testing H1 on economics if we want a quick +0.03 there. Queue note added to hypothesis-to-test.md.

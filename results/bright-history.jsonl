@@ -42,3 +42,5 @@
 {"timestamp":"2026-04-23T13:53:30.062Z","domain":"aops","ndcg10":0.278,"retrievalRecall":0.6054,"rankingRecall":0.3431,"queries":111,"description":"sonnet + rerank (2-stage, clean ranking context)"}
 {"timestamp":"2026-04-23T16:41:45.895Z","domain":"aops","ndcg10":0.2756,"retrievalRecall":0.5855,"rankingRecall":0.3367,"queries":111,"description":"sonnet + rerank v2 (metadata + BRIGHT framing in rerank prompt)"}
 {"timestamp":"2026-04-24T07:50:22.746Z","domain":"aops","ndcg10":0.2885,"retrievalRecall":0.4431,"rankingRecall":0.2995,"queries":111,"description":"haiku + solve-the-problem-too (answer in output forces reasoning)"}
+{"timestamp":"2026-04-24T11:11:21.230Z","domain":"aops","ndcg10":0.3409,"retrievalRecall":0.5795,"rankingRecall":0.3948,"queries":111,"description":"H1: sonnet + pre-computed reasoning pre-pass"}
+{"timestamp":"2026-04-24T13:17:22.673Z","domain":"aops","ndcg10":0.3409,"retrievalRecall":0.612,"rankingRecall":0.4025,"queries":111,"description":"H1-attempt2: sonnet + BRIEF technique-focused reasoning pre-pass"}

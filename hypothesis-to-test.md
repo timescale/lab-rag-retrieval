@@ -12,6 +12,8 @@ Ordered by expected impact / effort ratio.
 
 ## H1: Pre-computed query reasoning (BRIGHT canonical)
 
+**Status: TESTED on aops (Sonnet), declared non-viable after 2 attempts, +0.007 nDCG at p=0.69 — likely subsumed by our existing tag + HyDE + tree infrastructure. Still worth testing on economics (weaker infrastructure there). See experimental_log_bright.md for detailed analysis.**
+
 **Hypothesis.** The BRIGHT paper's signature technique. Before the search
 agent runs, a separate LLM call performs step-by-step reasoning about the
 query. The reasoning text is then injected into the search agent's prompt
