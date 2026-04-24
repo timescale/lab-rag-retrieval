@@ -12,6 +12,22 @@ Most active iteration is on BRIGHT (the harder benchmark). Recent experiment
 notes in `experimental_log_bright.md`; upcoming hypotheses in
 `hypothesis-to-test.md`.
 
+## Current database (active fork)
+
+- **Active fork**: `jdyfwo1bxu` (name: `bright-eval`, Ghost dev) — the DB
+  referenced in `.env`'s `DATABASE_URL`. Contains:
+  - All 12 BRIGHT domain tables populated
+  - `meta` jsonb column on `bright_aops` populated via
+    `tag_aops_corpus.ts` (~13k tagged chunks in useful sources)
+  - Flat single-label tree values for aops (migrated from
+    `math.train` → `math_train`)
+- **Prior fork**: `cbolbquuw3` (name: `autoresearch-rag`, ~15 GiB, running
+  again) — original DB. Was active through the pre-aops-tagging
+  experiments; paused/fell-over mid-session and we created
+  `jdyfwo1bxu` from scratch as a replacement. Not currently in use.
+
+See "Database fork workflow" below for the rule on when to fork.
+
 ## Quick Start
 
 ```bash
@@ -189,25 +205,79 @@ this.
    analysis of `results/*-history.jsonl` and the latest `results/*-eval-*`.
 2. State the hypothesis explicitly before coding: what failure are you
    targeting, what change, what metric should move.
-3. Modify the right surface:
+3. **If the experiment requires changing DB schema or data** (column
+   additions, new indexes, re-tagging, re-embedding, tree migration):
+   fork the DB first. See "Database fork workflow" below. **Prompt-only
+   or MCP-tool-only experiments do NOT need a fork** — run them on the
+   current active DB.
+4. Modify the right surface:
    - Retrieval/prompt only → just re-run eval
    - Ingestion → re-ingest (`--force`) then eval
-4. Run eval with a descriptive `--desc`:
+5. Run eval with a descriptive `--desc`:
    - BRIGHT: `bun run eval:bright -- --domain <d> --desc "<change>"`
    - MuSiQue: `bun run eval:quick -- --desc "<change>"`
-5. Compare against the previous baseline with paired-t and sign tests on
+6. Compare against the previous baseline with paired-t and sign tests on
    per-query deltas. Report nDCG + retrieval recall + ranking recall +
    zero-gold count. See any recent BRIGHT entry for the stats template.
-6. Update the experimental log **immediately** (`experimental_log.md` for
+7. Update the experimental log **immediately** (`experimental_log.md` for
    MuSiQue, `experimental_log_bright.md` for BRIGHT) — hypothesis, change,
    results table, analysis, decision.
-7. If improved: commit with scores in the message. If regressed: revert
+8. If improved: commit with scores in the message. If regressed: revert
    the code (`git checkout src/memory.ts src/mcp-server*.ts`).
+9. If the experiment used a fork, resolve it (see fork workflow): keep
+   the winning fork, pause the losing one, update the "Current database
+   (active fork)" section at the top of this file.
 
 **Rules.** Always test one experiment at a time. Always log before moving
 on. Sign-test vs paired-t disagreement is informative — a metric that's
 directionally significant (sign) but not magnitude-significant (t) is
 still a real signal; both-insignificant is noise.
+
+## Database fork workflow
+
+**When to fork.**
+- Adding / removing / ALTERing a column.
+- Changing ingestion logic (re-chunk, re-embed, enrichment, new metadata).
+- Running a tagging / annotation job that writes to the DB.
+- Anything else that mutates schema or data.
+
+**When NOT to fork.**
+- Prompt changes only.
+- MCP server / eval-harness code changes that only *read* the DB.
+- Adding flags or new search params that don't require DB state.
+
+**The fork procedure.**
+
+1. Fork the current active DB via the Ghost MCP:
+   `mcp__ghost__ghost_fork(id=<active-fork-id>, name="bright-<experiment>",
+   wait=true)`. A fork is ready in a minute or two.
+2. Update `.env`'s `DATABASE_URL` to the new fork's connection string.
+3. Run the schema/ingest change + the eval on the fork.
+4. Resolve at the end:
+   - **Experiment wins** (adopting the change): keep the new fork as the
+     active fork. Pause the OLD fork via
+     `mcp__ghost__ghost_pause(id=<old-id>)`. Update the "Current database
+     (active fork)" section of this file: move the old entry to "Prior
+     fork" and put the new one as "Active fork", noting the experiment
+     name + what schema/data it holds.
+   - **Experiment loses** (reverting the change): the old fork is still
+     correct. Pause the NEW fork via
+     `mcp__ghost__ghost_pause(id=<new-id>)`. Revert the .env to the old
+     `DATABASE_URL`. Add the paused fork to the log for reference but
+     don't promote it.
+5. Log the fork resolution in the experimental log alongside the results
+   table, including fork IDs.
+
+**Reuse.** If you're iterating on a change that's still being refined,
+stay on the same fork rather than forking again per micro-iteration.
+Fork per *experiment class*, not per prompt-tweak.
+
+**Cost note.** Paused Ghost DBs retain data but don't bill compute. We
+can always resume a paused fork if we want to re-examine a dead-end
+experiment.
+
+**Current forks** are tracked at the top of this file; update that
+section after every resolution.
 
 ## DB Schema (BRIGHT)
 
