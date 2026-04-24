@@ -239,6 +239,32 @@ on. Sign-test vs paired-t disagreement is informative — a metric that's
 directionally significant (sign) but not magnitude-significant (t) is
 still a real signal; both-insignificant is noise.
 
+**Iterate before abandoning.** For each hypothesis from
+`hypothesis-to-test.md` (or self-generated), if the first attempt
+doesn't work, analyze the failure and try to fix the implementation
+before abandoning the idea. Allow **up to 3 attempts per hypothesis**.
+Each attempt should:
+- Identify what went wrong (regressed metric, agent behavior, tool
+  usage, bug in the mechanism).
+- Propose a specific correction (prompt tweak, parameter change,
+  different formulation of the same core idea).
+- Run and log the result independently.
+
+You can also decide at any point that the idea is non-viable and stop
+early — document why. Examples of reasonable non-viability calls:
+- The mechanism fundamentally conflicts with something load-bearing
+  (e.g. answer-forcing steals tool-call budget → can't be fixed without
+  removing tool calls).
+- The hypothesis wasn't specific enough and the corrected versions are
+  really separate ideas.
+- Diminishing returns: two attempts showed the best variant was still
+  regressing; the next tweak is unlikely to flip it.
+
+Either way, **log each attempt** in the experimental log — including the
+ones you abandon — so future sessions see what was tried and why it
+didn't land. Pattern: one log section per hypothesis with an entry per
+attempt (numbered) and a final "Decision" block.
+
 ## Database fork workflow
 
 **When to fork.**
