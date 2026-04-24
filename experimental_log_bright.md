@@ -1305,3 +1305,30 @@ This is the mirror of the earlier "corpus-side infrastructure beats prompt-side 
 ### Follow-up
 
 Likely to matter MORE on economics (no corpus taxonomy, only a basic expansion prompt) than on aops (tag structure built). Worth testing H1 on economics if we want a quick +0.03 there. Queue note added to hypothesis-to-test.md.
+
+---
+
+## New aops baseline — Sonnet + effort=xhigh (2026-04-24)
+
+**Motivation.** Prior baseline used whatever effort level the Claude CLI's user-global settings supplied (discovered to be "high"). To prevent drift across machines / future CLI updates, we pinned `.claude/settings.json` and now pass `--setting-sources project --effort xhigh` to every subprocess. Taking a new reference baseline at the fixed, locked-in config.
+
+**Config.** Sonnet, `--effort xhigh`, `--setting-sources project`, concurrency 10, timeout 8 min, full aops (111 queries). Wall ~133 min.
+
+**Results vs prior Sonnet "high" baseline (2026-04-23T10-48-43-733Z):**
+
+| Metric | Sonnet high | Sonnet xhigh | Δ | paired-t p | sign test |
+|--------|------------|-------------|---|-----------|-----------|
+| nDCG@10 | 0.3335 | 0.3643 | +0.0308 | 0.104 | 37w / 35l / 39t (p=0.91) |
+| Retrieval recall | 0.6028 | 0.6156 | +0.0128 | 0.647 | 28w / 27l / 56t (p=1.00) |
+| Ranking recall | 0.3972 | 0.4373 | +0.0401 | 0.093 | 20w / 14l / 77t (p=0.39) |
+| Zero-gold | 11 | 17 | +6 | — | — |
+
+**Analysis.** +3.1 nDCG is nice-sounding but not significant at p<0.05 on either test. Sign test is essentially tied (37-35), so the mean improvement is driven by magnitude on a minority of queries rather than consistent wins. Ranking recall shows a similar pattern (20-14 among non-tied, +0.040 mean). Retrieval recall is a wash.
+
+Interpretation: xhigh lets the agent think harder on the queries where thinking helps, with the tradeoff that zero-gold went 11→17 (some queries the extra reasoning misfires into a wrong search direction). Net positive but noise-level.
+
+**Cost.** ~133 min wall at concurrency 10 vs maybe ~40-60 min at "high". Roughly 2-3× cost for marginal gain. Accepting because (a) user requested the fixed-effort baseline, (b) stability matters more than throughput for experiment comparability, (c) the +0.031 compounds with future experiments rather than competing with them.
+
+**Decision.** Adopt as new reference baseline. All subsequent aops experiments compare against 0.3643.
+
+**Commit.** Results at `results/bright-eval-2026-04-24T16-14-07-280Z.json`.

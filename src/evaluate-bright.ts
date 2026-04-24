@@ -87,7 +87,7 @@ function mcpConfigFor(
 }
 
 const MCP_TOOLS = "mcp__recall__me_memory_search";
-const TIMEOUT_MS = 240_000;
+const TIMEOUT_MS = 480_000;
 const MAX_RETRIES = 2;
 const JSON_SCHEMA = '{"type":"object","properties":{"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
 

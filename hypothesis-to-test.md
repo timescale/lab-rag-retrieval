@@ -2,9 +2,7 @@
 
 Derived from the BRIGHT leaderboard survey (2026-04-24). Focus: techniques from
 top-ranking systems that are applicable without custom model training. aops
-current baseline: **nDCG@10 = 0.328** (Haiku) / **0.333** (Sonnet) with the
-full stack (tree prompt + silent exclusion + HyDE + tag-based retrieval +
-fixed lquery).
+current baseline: **nDCG@10 = 0.3643** (Sonnet, `--effort xhigh`, `--setting-sources project`, 2026-04-24). Full stack: tree prompt + silent exclusion + HyDE + tag-based retrieval + fixed lquery. Prior "high"-effort reference was 0.3335.
 
 Ordered by expected impact / effort ratio.
 
