@@ -222,8 +222,14 @@ this.
 7. Update the experimental log **immediately** (`experimental_log.md` for
    MuSiQue, `experimental_log_bright.md` for BRIGHT) — hypothesis, change,
    results table, analysis, decision.
-8. If improved: commit with scores in the message. If regressed: revert
-   the code (`git checkout src/memory.ts src/mcp-server*.ts`).
+8. Commit in both cases, so the experiment log entry is preserved:
+   - If improved: commit the code changes + log entry together, with
+     scores in the message.
+   - If regressed: revert the code (`git checkout src/memory.ts
+     src/mcp-server*.ts`) but still commit the log entry (and any
+     result JSON artifacts) so the reasoning is recorded for future
+     sessions. The commit message should note the revert and the
+     regression magnitude.
 9. If the experiment used a fork, resolve it (see fork workflow): keep
    the winning fork, pause the losing one, update the "Current database
    (active fork)" section at the top of this file.
