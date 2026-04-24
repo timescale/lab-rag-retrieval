@@ -28,6 +28,7 @@ function parseArgs() {
   let model = "haiku";
   let reason = false;
   let reasonModel = "";
+  let effort = "xhigh"; // default for this harness; overridable per run
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--samples" && args[i + 1]) {
@@ -42,6 +43,9 @@ function parseArgs() {
     } else if (args[i] === "--model" && args[i + 1]) {
       model = args[i + 1]!;
       i++;
+    } else if (args[i] === "--effort" && args[i + 1]) {
+      effort = args[i + 1]!;
+      i++;
     } else if (args[i] === "--reason") {
       reason = true;
     } else if (args[i] === "--reason-model" && args[i + 1]) {
@@ -51,7 +55,7 @@ function parseArgs() {
     }
   }
 
-  return { samples, domain, description, model, reason, reasonModel: reasonModel || model };
+  return { samples, domain, description, model, effort, reason, reasonModel: reasonModel || model };
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +89,11 @@ function mcpConfigFor(
 const MCP_TOOLS = "mcp__recall__me_memory_search";
 const TIMEOUT_MS = 240_000;
 const MAX_RETRIES = 2;
+// Pinned Claude CLI settings file (copied from ~/.claude/settings.json into
+// this repo's .claude/). Prevents experiments from silently drifting when the
+// user edits their global Claude config between runs. The file is
+// gitignored — each workstation must copy it in on first use.
+const CLAUDE_SETTINGS_PATH = ".claude/settings.json";
 const JSON_SCHEMA = '{"type":"object","properties":{"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
 
 interface ToolCallRecord {
@@ -99,10 +108,12 @@ interface ClaudeResult {
   retrievedIds: Set<string>;
 }
 
-async function askClaudeOnce(prompt: string, mcpConfig: string, model: string): Promise<ClaudeResult> {
+async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, effort: string): Promise<ClaudeResult> {
   const args = [
     "claude", "-p", prompt,
+    "--settings", CLAUDE_SETTINGS_PATH,
     "--output-format", "json", "--verbose", "--model", model,
+    "--effort", effort,
     "--json-schema", JSON_SCHEMA,
     "--mcp-config", mcpConfig, "--strict-mcp-config",
     "--tools", MCP_TOOLS, "--allowedTools", MCP_TOOLS,
@@ -176,10 +187,10 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string): 
   }
 }
 
-async function askClaude(prompt: string, mcpConfig: string, model: string): Promise<ClaudeResult> {
+async function askClaude(prompt: string, mcpConfig: string, model: string, effort: string): Promise<ClaudeResult> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await askClaudeOnce(prompt, mcpConfig, model);
+      return await askClaudeOnce(prompt, mcpConfig, model, effort);
     } catch (e: any) {
       if (attempt < MAX_RETRIES) {
         process.stderr.write(`  retry(${attempt + 1}) `);
@@ -223,10 +234,11 @@ Produce a BRIEF analysis (under 150 words) with three parts:
 
 Be concise. Do not produce a full derivation.`;
 
-async function reasonAboutQuery(query: string, model: string): Promise<string> {
+async function reasonAboutQuery(query: string, model: string, effort: string): Promise<string> {
   const proc = Bun.spawn([
     "claude", "-p", BRIGHT_REASONING_PROMPT(query),
-    "--output-format", "json", "--model", model,
+    "--settings", CLAUDE_SETTINGS_PATH,
+    "--output-format", "json", "--model", model, "--effort", effort,
   ], { stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
   const stdout = await new Response(proc.stdout).text();
@@ -248,7 +260,7 @@ async function reasonAboutQuery(query: string, model: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const { samples: maxSamples, domain, description, model, reason, reasonModel } = parseArgs();
+  const { samples: maxSamples, domain, description, model, effort, reason, reasonModel } = parseArgs();
 
   if (!domain) {
     console.error("--domain is required. E.g.: bun run eval:bright -- --domain pony");
@@ -278,13 +290,14 @@ async function main() {
     process.exit(1);
   }
   console.log(`Corpus: ${memRow!.count} documents in ${tableName}`);
+  console.log(`Model: ${model}, effort: ${effort}`);
   if (reason) console.log(`Reasoning pre-pass: enabled (model=${reasonModel})`);
   console.log();
   await sql.end();
 
   // Evaluate queries
   const allResults: BrightQueryResult[] = new Array(examples.length);
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 10;
 
   console.log(`Answering ${examples.length} queries...`);
   let t0 = performance.now();
@@ -300,7 +313,7 @@ async function main() {
         (async () => {
           let prompt = buildPromptBright(ex.query, domain);
           if (reason) {
-            const reasoning = await reasonAboutQuery(ex.query, reasonModel);
+            const reasoning = await reasonAboutQuery(ex.query, reasonModel, effort);
             if (reasoning) {
               // Prepend the reasoning as added context. Keep the original
               // prompt structure intact so the agent's existing directives
@@ -317,7 +330,7 @@ async function main() {
             writeFileSync(excludedPath, realExcluded.join("\n"));
           }
           const perQueryMcpConfig = mcpConfigFor(tableName, domain, excludedPath);
-          const result = await askClaude(prompt, perQueryMcpConfig, model);
+          const result = await askClaude(prompt, perQueryMcpConfig, model, effort);
 
           // Belt-and-braces: still strip excluded from final ranking output in case
           // the agent echoes an excluded id it had seen before exclusion was in effect.

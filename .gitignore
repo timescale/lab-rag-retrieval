@@ -2,6 +2,11 @@ node_modules/
 bun.lock
 .env
 .venv/
+# Pinned Claude CLI settings live in .claude/settings.json (committed — it
+# holds only behavior preferences like effortLevel / alwaysThinkingEnabled,
+# no credentials). Per-machine permission rules and runtime state stay local.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 data/musique/
 data/musique.zip
 data/corpus.jsonl
