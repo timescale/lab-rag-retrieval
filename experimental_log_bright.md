@@ -1417,3 +1417,43 @@ The retrieval recall gain (+0.036) is the strongest "found-but-not-ranked" signa
 - A1: improve the StructuredOutput prompt to weigh concept-match (technique tags) explicitly vs. surface-match.
 - A2: present results in a different order (e.g., already-RRF'd order is mixed) to bias the ranker.
 - A3: a separate-pass cross-encoder rerank (we tried this earlier on this stack and it regressed; might work better with the v2 retrieval pool).
+
+---
+
+## H6: Explicit ranking guidance in math prompt (2026-04-25)
+
+**Hypothesis.** Following H1 + H3, the persistent residue is "agent retrieves enough but ranks poorly". Hypothesis: the ranker isn't using the technique-tag signal as aggressively as it could. Add an explicit "Ranking guidance" section to `buildPromptBrightMath`:
+- HIGHEST priority: docs whose tech-tags match the techniques you identified.
+- HIGH priority: aops/math_train problem statements with structurally similar setups.
+- MEDIUM priority: theoremqa entries explaining the technique.
+- DEMOTE: docs that surface via keyword match but use a different technique.
+
+Prompt-only change. No DB / fork needed. Eval at Sonnet xhigh.
+
+**Result (vs xhigh baseline 0.3643):**
+
+| Metric | Baseline | H6 | Δ | paired-t p | sign test |
+|--------|----------|-----|---|-----------|-----------|
+| nDCG@10 | 0.3643 | 0.3632 | -0.0011 | 0.953 | 40w/34l (p=0.56) |
+| Retrieval recall | 0.6156 | 0.6111 | -0.0046 | 0.852 | 26w/25l (p=1.00) |
+| Ranking recall | 0.4373 | 0.4227 | -0.0146 | 0.502 | 13w/16l (p=0.71) |
+| Avg tool calls | 16.3 | 15.1 | -1.2 | — | — |
+| Zero-gold | 17 | 13 | -4 | — | — |
+
+All metrics noise-level negative. Sign tests effectively 50/50. Avg tool calls dropped by 1.2 — the longer prompt cost some output budget that previously went to additional searches.
+
+### Decision
+
+**Declared non-viable on first attempt** (no second variant attempted). Decision rationale:
+- The math prompt already directs heavily on technique tagging via `techniquesAny` (~250 words on tag usage). Adding a redundant "use tags more" directive is noise.
+- The drop in tool calls (16.3 → 15.1) suggests the ranker change came at the expense of search depth — the trade-off is in the wrong direction.
+- Combined with H1 + H3 findings, the picture is: the ranker on this stack appears already at the prompt-tunable ceiling. Further nDCG gains likely require structural ranker changes (cross-encoder rerank, stratified ranking, candidate-set reduction), not prompt tweaks.
+
+**Reverting.** `git checkout src/memory.ts` restores the original math prompt. Result JSON kept for record.
+
+### Generalizable finding
+
+After three attempts to improve nDCG via "encourage the ranker harder" approaches (H1 reasoning pre-pass, H3-A3 hint in result lines, H6 explicit ranking instructions), all landed in noise. **Prompt-side levers on the ranker are saturated on this stack.** The agent's StructuredOutput is already producing near-optimal rankings *given the candidates it sees*. To move nDCG further requires either:
+1. Improving candidate quality at retrieval (capped by H3 finding — gold-set-recall is at ~0.65; the gold docs that AREN'T retrieved are typically truly hard to surface from query alone),
+2. A different ranker architecture (cross-encoder rerank, stratified rerank), or
+3. Different gold labeling (BRIGHT gold is "what experts cite", which is partly subjective).

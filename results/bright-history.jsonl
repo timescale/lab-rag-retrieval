@@ -48,3 +48,4 @@
 {"timestamp":"2026-04-24T23:26:33.960Z","domain":"aops","ndcg10":0.3436,"retrievalRecall":0.6267,"rankingRecall":0.406,"queries":111,"description":"H3: doc pseudo-queries via search_content BM25 (xhigh, concurrency=10)"}
 {"timestamp":"2026-04-25T00:50:46.972Z","domain":"aops","ndcg10":0.3693,"retrievalRecall":0.6521,"rankingRecall":0.4461,"queries":111,"description":"H3-v2: 3-way RRF (content BM25 + search_content BM25 + semantic)"}
 {"timestamp":"2026-04-25T02:34:22.132Z","domain":"aops","ndcg10":0.3617,"retrievalRecall":0.6532,"rankingRecall":0.4257,"queries":111,"description":"H3-v3: 3-way RRF + hint=pseudo_queries[0] in result lines"}
+{"timestamp":"2026-04-25T05:15:06.166Z","domain":"aops","ndcg10":0.3632,"retrievalRecall":0.6111,"rankingRecall":0.4227,"queries":111,"description":"H6: explicit ranking guidance in math prompt (tech-tag priority, demote surface-keyword)"}
