@@ -14,18 +14,25 @@ notes in `experimental_log_bright.md`; upcoming hypotheses in
 
 ## Current database (active fork)
 
-- **Active fork**: `jdyfwo1bxu` (name: `bright-eval`, Ghost dev) — referenced
-  in `.env`'s `DATABASE_URL`. Restored as active 2026-04-25 after H3 reverted.
-  Contains:
-  - All 12 BRIGHT domain tables populated
-  - `meta` jsonb column on `bright_aops` populated via
-    `tag_aops_corpus.ts` (~13k tagged chunks in useful sources)
-  - Flat single-label tree values for aops
-- **Idle fork (H3 leftover)**: `p7di7u36o4` (name: `bright-h3-pseudoqueries`)
-  — fork of `jdyfwo1bxu` taken 2026-04-24 for H3 experiment. H3 declared
-  non-viable; this fork still holds the pseudo-query data and the
-  `search_content` column / index for reference. Ghost MCP doesn't expose
-  pause, so this is left running unless manually paused via Ghost UI.
+- **Active fork**: `p7di7u36o4` (name: `bright-h3-pseudoqueries`, Ghost dev)
+  — re-promoted as active 2026-04-25 after H7 (concept sketches) banked a
+  significant retrieval-recall gain (+0.053, p=0.017). Referenced in
+  `.env`'s `DATABASE_URL`. In addition to everything in the parent, has:
+  - `search_content TEXT` column on `bright_aops` (content + pseudo_queries
+    appended; from H3)
+  - `meta.pseudo_queries: string[]` per useful doc (from H3, 12,968 docs)
+  - `sketch TEXT` column on `bright_aops` (50-word abstract concept
+    fingerprint per useful doc; from H7)
+  - `sketch_embedding halfvec(1536)` column with HNSW index
+  - `meta.sketch: string` per useful doc (from H7, 12,205 nonempty)
+  - BM25 indexes: `content`, `search_content`, `sketch`
+  - HNSW indexes: `embedding` (content), `sketch_embedding`
+  - MCP server queries 4-way RRF: content BM25 + search_content BM25 +
+    content semantic + sketch semantic
+- **Parent fork**: `jdyfwo1bxu` (name: `bright-eval`) — pre-H7 baseline.
+  Receives no writes; revert target if H7 is later disowned. Has:
+  - All 12 BRIGHT domain tables
+  - `meta.techniques/category/kind/setup_tags` from `tag_aops_corpus.ts`
 - **Prior fork**: `cbolbquuw3` (name: `autoresearch-rag`, ~15 GiB, running
   again) — original DB. Not in active rotation.
 

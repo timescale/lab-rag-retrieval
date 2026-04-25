@@ -1457,3 +1457,84 @@ After three attempts to improve nDCG via "encourage the ranker harder" approache
 1. Improving candidate quality at retrieval (capped by H3 finding — gold-set-recall is at ~0.65; the gold docs that AREN'T retrieved are typically truly hard to surface from query alone),
 2. A different ranker architecture (cross-encoder rerank, stratified rerank), or
 3. Different gold labeling (BRIGHT gold is "what experts cite", which is partly subjective).
+
+---
+
+## H7: Per-doc concept sketches as new retrieval metadata (2026-04-25)
+
+**Diagnostic.** Inspected the 74 unique missed gold docs from the xhigh baseline. ALL are in-corpus and tagged with at least one technique. The bottleneck isn't tag quality — it's that within-tag ranking is dominated by surface similarity. Direct measurement on the SFFT cluster (rectangle query, 4 gold docs):
+- BM25 on `content`: gold ranks #1991 (one), others past #5000.
+- Semantic NN on `embedding`: gold ranks #728, #3561, #4444, #6902.
+
+Gold docs are **concept-equivalent but surface-disjoint**. No surface signal can bridge them at any reasonable candidate-window size. Need explicit concept-fingerprint metadata.
+
+**Hypothesis.** Per useful doc, generate via Haiku a 50-80 word abstract description in canonical math vocabulary describing (1) what the problem ASKS abstractly, (2) which named technique APPLIES, (3) the critical INTERMEDIATE FORM. Strip scenario words. Two concept-equivalent problems should produce sketches with high overlap.
+
+**Validation on the SFFT cluster.** All 4 gold docs' sketches contained "Simon's Favorite Factoring Trick" + "(x-c)(y-d) = k" + "two-variable equation". With agent-style fulltext "Simon Favorite Factoring Trick integer pairs", BM25 on sketch puts gold at ranks 29 / 51 / 87 / 130 (vs >5000 on content BM25). Semantic on sketch_embedding puts the harmonic mean problem at rank 3 (vs 4444 on content embedding).
+
+**Setup.**
+- Stayed on the H3 fork `p7di7u36o4` (already had `search_content` + pseudo_queries from H3).
+- Built `tag_sketches.ts` (worker pool, concurrency 20, Haiku via subprocess). 12,968 useful docs, 0.68/s steady state, ~6h wall, 3 errors. 12,205 nonempty + 763 empty (LLM rejected non-math chunks).
+- Built `build_sketch_indexes.ts`: ALTER TABLE add `sketch TEXT` + `sketch_embedding halfvec(1536)`, populate from `meta.sketch`, embed via text-embedding-3-small (12k in 25s), bulk write embeddings (~2 min), CREATE INDEX BM25 (4s) + HNSW (40s).
+
+### Attempt 1 — 4-way RRF (content BM25 + sketch BM25 + content sem + sketch sem)
+
+| Metric | Baseline | A1 | Δ | paired-t p | sign |
+|--------|----------|-----|---|-----------|------|
+| nDCG@10 | 0.3643 | 0.3551 | -0.0092 | 0.524 | 33w/40l (p=0.48) |
+| Retrieval recall | 0.6156 | 0.6381 | +0.0225 | 0.369 | 30w/22l (p=0.33) |
+| Ranking recall | 0.4373 | 0.4108 | -0.0264 | 0.199 | 13w/23l (p=0.13) |
+
+Ranking regressed and retrieval gain was modest. Hypothesis: sketch BM25 over-clusters on shared technique words ("Simon", "factoring") — every SFFT doc matches the same BM25 keywords, polluting the keyword channel.
+
+### Attempt 2 — drop sketch BM25, add sketch SEMANTIC alongside H3-A2 stack
+
+4-way RRF: content BM25 + search_content BM25 (= content + pseudo_queries from H3) + content semantic + sketch semantic. Sketch SEMANTIC carries the concept-bridge signal more cleanly than sketch BM25.
+
+| Metric | Baseline | A2 | Δ | paired-t p | sign |
+|--------|----------|-----|---|-----------|------|
+| nDCG@10 | 0.3643 | 0.3613 | -0.0030 | 0.853 | 36w/33l (p=0.81) |
+| Retrieval recall | 0.6156 | **0.6685** | **+0.0529** | **0.017** | **31w/14l (p=0.016)** |
+| Ranking recall | 0.4373 | 0.4332 | -0.0041 | 0.815 | 17w/19l (p=0.87) |
+| Zero-gold | 17 | 10 | -7 | — | — |
+
+**Retrieval recall gain is statistically significant on both tests** — the strongest retrieval signal we've measured. nDCG flat (-0.003). 7 fewer queries fail completely (zero-gold).
+
+### Attempt 3 — same as A2 + bump default `limit` 10→20, `candidateLimit` 30→60
+
+Hypothesis: with sketch+pseudo channels feeding more gold into the candidate pool, the 10-result cap might be truncating gold at ranks 11-20.
+
+| Metric | Baseline | A3 | Δ | paired-t p | sign |
+|--------|----------|-----|---|-----------|------|
+| nDCG@10 | 0.3643 | 0.3523 | -0.0120 | 0.365 | 38w/32l (p=0.55) |
+| Retrieval recall | 0.6156 | 0.6282 | +0.0125 | 0.536 | 26w/18l (p=0.29) |
+| Ranking recall | 0.4373 | 0.4142 | -0.0231 | 0.146 | 14w/18l (p=0.60) |
+
+A3 vs A2: retrieval recall *dropped* by 0.041 (went from +0.053 → +0.012). Counter-intuitive. Likely cause: 20-result responses have ~2× the text per call, the agent's output budget (xhigh effort) gets consumed reading them, and the agent compensates by using fewer effective searches or skimming. Tool-call count was similar (16.6 vs 16.7) but per-call effectiveness degraded.
+
+### Decision
+
+**Adopt A2 as the new baseline.** Reasons:
+- A2's retrieval recall gain (+0.053) is statistically significant on both paired-t and sign test — the only retrieval gain to clear p<0.05 in this session.
+- 7 fewer queries with zero-gold, a real impact on the hardest queries.
+- nDCG flat (-0.003) is noise, not regression.
+- Future ranker experiments now start from a higher retrieval ceiling. The +0.053 retrieval is "potential energy" — only useful if a future ranker change unlocks it, but reverting throws it away entirely.
+
+**Reverted A3's limit bump** in code; kept A2's 4-channel RRF. Active fork is now `p7di7u36o4` (with sketches + pseudo_queries + search_content). Parent fork `jdyfwo1bxu` retained as the H7-revert target.
+
+### Generalizable findings
+
+1. **Concept sketches genuinely bridge concept-equivalent surface-disjoint docs.** Validated: SFFT gold docs went from rank ~5000 (content BM25/semantic) to rank ~3-130 on sketch indexes. The +0.053 retrieval recall (sig p=0.017) is the corpus-side improvement we predicted.
+
+2. **Confirms the ranker is the bottleneck.** Five experiments now (H1, H3, H6, H7-A1, H7-A2) all show: improving retrieval candidates doesn't translate to nDCG. The agent's StructuredOutput ranker has a converged top-10 selection that's relatively insensitive to candidate-pool quality — once the obvious gold is in the pool, additional candidates don't move ranking decisions.
+
+3. **Sketch BM25 vs sketch semantic asymmetry.** A1 used both sketch BM25 and sketch semantic; regressed. A2 dropped sketch BM25, kept sketch semantic; gained significantly. The sketches share canonical technique words (Simon, factoring, Vieta) so BM25 over-clusters. Semantic on the abstract sketch text generalizes better — it captures the WHOLE sketch's structure, not just shared keywords.
+
+4. **More results per call doesn't help.** A3 bumped limit 10→20 and saw retrieval recall *drop*. Hypothesis: with xhigh effort, longer tool responses consume more of the agent's reasoning budget, and the agent's per-call effectiveness drops. The "more candidates is always better" intuition is wrong on this stack.
+
+### Follow-up: ranker experiments
+
+The H7-A2 retrieval recall ceiling (~0.67) is now well above the ranker's effective ceiling (~0.43 ranking recall). The gap is ~0.24 — gold IS in the agent's view but doesn't make top-10 for ~24% of queries. Next experiments should target the ranker:
+- Cross-encoder rerank as a separate-pass over A2's wider retrieval pool (earlier rerank attempts regressed on smaller pool — different setup now).
+- Candidate stratification: present results grouped by retrieval channel ("top sketch matches: ...; top content matches: ...") rather than RRF-flattened.
+- Ranker-targeted prompt: focus on the *last* search/ranking step rather than the search loop (we tested broader prompt changes; ranker-only is untested).

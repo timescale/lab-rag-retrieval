@@ -122,19 +122,34 @@ server.tool(
 
     if (hasSemantic || hasFulltext) {
       const bm25Results: Array<{ id: string }> = [];
+      const sketchBm25Results: Array<{ id: string }> = [];
       const semanticResults: Array<{ id: string }> = [];
+      const sketchSemResults: Array<{ id: string }> = [];
 
       if (hasFulltext) {
+        // H7-v2: 4-way RRF — content BM25 + search_content BM25 (content +
+        // pseudo_queries) for keyword channels. Drop sketch BM25 (over-clusters
+        // on technique words). Sketch SEMANTIC is the concept-bridge channel.
         const tBm25 = performance.now();
-        const bm25 = await sql.unsafe<Array<{ id: string }>>(
-          `SELECT id FROM ${ACTIVE_TABLE}
-           ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
-           ORDER BY content <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_content_bm25_idx')
-           LIMIT $${paramIdx + 1}`,
-          [...filterValues, params.fulltext, candidateLimit] as any[],
-        );
+        const [bm25c, bm25sc] = await Promise.all([
+          sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
+             ORDER BY content <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_content_bm25_idx')
+             LIMIT $${paramIdx + 1}`,
+            [...filterValues, params.fulltext, candidateLimit] as any[],
+          ),
+          sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
+             ORDER BY search_content <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_search_content_bm25_idx')
+             LIMIT $${paramIdx + 1}`,
+            [...filterValues, params.fulltext, candidateLimit] as any[],
+          ),
+        ]);
         timings.bm25_ms = Math.round(performance.now() - tBm25);
-        bm25Results.push(...bm25);
+        bm25Results.push(...bm25c);
+        sketchBm25Results.push(...bm25sc); // re-using the slot; now holds search_content BM25
       }
 
       if (hasSemantic) {
@@ -185,23 +200,42 @@ server.tool(
           semFilters.push(`(${ors.join(" OR ")})`);
         }
         const semFilterClause = semFilters.length > 0 ? " AND " + semFilters.join(" AND ") : "";
-        const sem = await sql.unsafe<Array<{ id: string }>>(
-          `SELECT id FROM ${ACTIVE_TABLE}
-           WHERE embedding IS NOT NULL
-             AND (embedding <=> $1::halfvec) < 1.0${semFilterClause}
-           ORDER BY (embedding <=> $1::halfvec) ASC, created_at DESC
-           LIMIT $2`,
-          [vec, candidateLimit, ...semFilterValues] as any[],
-        );
+        // H7: semantic on content embedding AND on sketch_embedding (concept).
+        const [sem, semSketch] = await Promise.all([
+          sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             WHERE embedding IS NOT NULL
+               AND (embedding <=> $1::halfvec) < 1.0${semFilterClause}
+             ORDER BY (embedding <=> $1::halfvec) ASC, created_at DESC
+             LIMIT $2`,
+            [vec, candidateLimit, ...semFilterValues] as any[],
+          ),
+          sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             WHERE sketch_embedding IS NOT NULL
+               AND (sketch_embedding <=> $1::halfvec) < 1.0${semFilterClause}
+             ORDER BY (sketch_embedding <=> $1::halfvec) ASC, created_at DESC
+             LIMIT $2`,
+            [vec, candidateLimit, ...semFilterValues] as any[],
+          ),
+        ]);
         timings.semantic_ms = Math.round(performance.now() - tSem);
         semanticResults.push(...sem);
+        sketchSemResults.push(...semSketch);
       }
 
       const scores = new Map<string, number>();
+      // 4-way RRF: content BM25 + sketch BM25 + content semantic + sketch semantic.
       bm25Results.forEach((r, i) => {
         scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
       });
+      sketchBm25Results.forEach((r, i) => {
+        scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
+      });
       semanticResults.forEach((r, i) => {
+        scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
+      });
+      sketchSemResults.forEach((r, i) => {
         scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
       });
 
