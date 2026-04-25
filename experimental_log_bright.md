@@ -1332,3 +1332,88 @@ Interpretation: xhigh lets the agent think harder on the queries where thinking 
 **Decision.** Adopt as new reference baseline. All subsequent aops experiments compare against 0.3643.
 
 **Commit.** Results at `results/bright-eval-2026-04-24T16-14-07-280Z.json`.
+
+---
+
+## H3: Document pseudo-queries at ingest (2026-04-24/25)
+
+**Hypothesis.** For each useful aops doc, generate 3-5 natural-language search queries it could answer (Doc2Query / HyDE-flip). Index those into BM25 alongside content. User queries hit the pseudo-queries and surface concept-related docs whose surface vocabulary differs from the question. Expected +0.02 to +0.06 nDCG.
+
+**Setup.**
+- Forked DB → `p7di7u36o4` (`bright-h3-pseudoqueries`).
+- Added `search_content TEXT` column on `bright_aops` (188k rows, 17 min ALTER + UPDATE for the bulk write).
+- Built `tag_pseudo_queries.ts`: streams 12,968 useful docs, calls Haiku per doc with a "generate 3-5 search queries this doc could answer" prompt; cached via `data/pseudo_query_cache`. Initial batch-mode (Promise.all per batch) was 0.5/s; refactored to a worker-pool (each of 20 workers pulls from an async iterator) and got 0.84/s. Total wall: 305 min, 0 errors. All 12,968 docs tagged.
+- Wrote pseudo-queries into `meta.pseudo_queries: string[]`.
+- Built `update_search_content.ts`: `search_content = content || E'\n\nRelated questions:\n' || join(pseudo_queries, '\n')`. 12,960 rows updated (8 had empty queries from the LLM and stayed as content-only).
+- Built BM25 index on `search_content`.
+
+**Smoke-test before tagging.** Generated pseudo-queries for the SFFT concept cluster (4 mutually-gold docs). All 4 produced "simon's favorite factoring trick" or "factoring product minus sum" phrases. Strong signal that pseudo-queries would bridge the cluster via BM25.
+
+### Attempt 1 — Replace BM25 source: `content` → `search_content`
+
+Single-source BM25 swap. Reasoning: simpler change, just point existing index at augmented column. Eval at Sonnet xhigh.
+
+| Metric | Baseline | A1 | Δ | paired-t p | sign test |
+|--------|----------|-----|---|-----------|-----------|
+| nDCG@10 | 0.3643 | 0.3436 | -0.0207 | 0.218 | 30w/37l (p=0.46) |
+| Retrieval recall | 0.6156 | 0.6267 | +0.0110 | 0.638 | 30w/20l (p=0.20) |
+| Ranking recall | 0.4373 | 0.4060 | -0.0313 | 0.092 | 13w/18l (p=0.47) |
+| Zero-gold | 17 | 14 | -3 | — | — |
+
+Retrieval up slightly, ranking down meaningfully (p=0.09). Diagnostic: H3 pulled gold IDs out of top-10 on 18 queries, including queries where baseline had gold at positions 9-10 (most exposed to ranking shifts). The augmented BM25 score now reflects matches against pseudo-query text — gold and non-gold both score higher, but the extra noise on non-gold pushes them above gold in the candidate list.
+
+### Attempt 2 — 3-way RRF (content BM25 + search_content BM25 + semantic)
+
+Restored BM25 index on `content` (45s). Updated mcp-server-aops.ts to run BOTH BM25 queries in parallel (Promise.all) and contribute both as separate channels to RRF fusion. Pseudo-queries add a parallel channel without replacing the clean content scoring.
+
+| Metric | Baseline | A2 | Δ | paired-t p | sign test |
+|--------|----------|-----|---|-----------|-----------|
+| nDCG@10 | 0.3643 | 0.3693 | +0.0050 | 0.746 | 42w/36l (p=0.57) |
+| Retrieval recall | 0.6156 | 0.6521 | +0.0365 | 0.092 | 27w/16l (p=0.13) |
+| Ranking recall | 0.4373 | 0.4461 | +0.0088 | 0.611 | 24w/15l (p=0.20) |
+| Zero-gold | 17 | 11 | -6 | — | — |
+
+Ranking regression flipped. Retrieval recall up by 3.6 pts (borderline significant, sign test 27w/16l = 63% wins among non-tied). nDCG essentially flat (+0.005, well within noise).
+
+### Attempt 3 — Hint in result lines
+
+Hypothesis for the gap: pseudo-queries help retrieve more gold but the agent's StructuredOutput ranker doesn't see them — only raw content. Surface one pseudo-query per result line as a `hint: "..."` field so the ranker can use the concept signal.
+
+| Metric | Baseline | A3 | Δ | paired-t p | sign test |
+|--------|----------|-----|---|-----------|-----------|
+| nDCG@10 | 0.3643 | 0.3617 | -0.0026 | 0.833 | 37w/34l (p=0.81) |
+| Retrieval recall | 0.6156 | 0.6532 | +0.0375 | 0.101 | 29w/19l (p=0.19) |
+| Ranking recall | 0.4373 | 0.4257 | -0.0116 | 0.485 | 16w/20l (p=0.62) |
+
+A3 vs A2 (isolating the hint's effect): ranking recall regressed -0.020, sign test 15w/30l with **p=0.036** — *significantly worse* with the hint. The hint dilutes the agent's attention or biases ranking decisions adversely; the technique tag was already there providing a cleaner concept signal.
+
+### Decision
+
+**Declared non-viable on this stack after 3 attempts.**
+- Best variant (A2: 3-way RRF) gave +0.005 nDCG, +0.036 retrieval recall.
+- nDCG gain is smaller than H1's rejected +0.007.
+- Retrieval recall gain is real (+3.6 pts, p≈0.09) but doesn't translate to nDCG — gold gets retrieved more often but the ranker doesn't move it up.
+- A3 confirmed: feeding the pseudo-query to the ranker actively hurts.
+
+The bottleneck on this stack is the StructuredOutput ranker, not retrieval recall. Adding more retrieval signal without giving the ranker a way to use it is wasted.
+
+**Reverting:**
+- mcp-server-aops.ts → single BM25 channel on `content` (HEAD baseline).
+- .env → parent fork `jdyfwo1bxu`.
+- H3 fork `p7di7u36o4` left running (Ghost MCP doesn't expose pause); pseudo_queries data preserved on the fork. Manual pause possible via Ghost UI to save compute.
+- Code reverted via `git checkout src/mcp-server-aops.ts`. Workflow auxiliary scripts (`tag_pseudo_queries.ts`, `update_search_content.ts`, `rebuild_bm25_index.ts`, `restore_content_bm25.ts`) kept in tree as reference for future doc-augmentation experiments.
+
+### Generalizable findings
+
+1. **Retrieval ≠ ranking on this stack.** Pseudo-queries genuinely help BM25 surface gold (+0.036 retrieval recall, p=0.09). But the agent's final ranking (top-10 selection via StructuredOutput) doesn't capitalize. Retrieval expansion only helps nDCG when the ranker can also act on it.
+
+2. **Adding info to result lines is not free.** A3 added a single `hint:` field per result, expecting the ranker would use the concept signal. Instead it regressed by 0.020 ranking recall. Result-line content is a finite attention budget; extra fields dilute the existing tree/cat/tech signal.
+
+3. **H3 confirms the H1 lesson from a different angle.** H1 (query-side reasoning) and H3 (corpus-side doc expansion) both deliver retrieval gains that don't translate to nDCG on this fully-instrumented stack. The agent's tag + tree + HyDE infrastructure is already pulling the relevant docs; the remaining bottleneck is the ranker's discrimination among concept-similar candidates.
+
+### Follow-up
+
+The retrieval recall gain (+0.036) is the strongest "found-but-not-ranked" signal we've measured. A natural next experiment: target the ranker. Options:
+- A1: improve the StructuredOutput prompt to weigh concept-match (technique tags) explicitly vs. surface-match.
+- A2: present results in a different order (e.g., already-RRF'd order is mixed) to bias the ranker.
+- A3: a separate-pass cross-encoder rerank (we tried this earlier on this stack and it regressed; might work better with the v2 retrieval pool).

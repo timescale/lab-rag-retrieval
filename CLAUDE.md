@@ -14,17 +14,20 @@ notes in `experimental_log_bright.md`; upcoming hypotheses in
 
 ## Current database (active fork)
 
-- **Active fork**: `jdyfwo1bxu` (name: `bright-eval`, Ghost dev) — the DB
-  referenced in `.env`'s `DATABASE_URL`. Contains:
+- **Active fork**: `jdyfwo1bxu` (name: `bright-eval`, Ghost dev) — referenced
+  in `.env`'s `DATABASE_URL`. Restored as active 2026-04-25 after H3 reverted.
+  Contains:
   - All 12 BRIGHT domain tables populated
   - `meta` jsonb column on `bright_aops` populated via
     `tag_aops_corpus.ts` (~13k tagged chunks in useful sources)
-  - Flat single-label tree values for aops (migrated from
-    `math.train` → `math_train`)
+  - Flat single-label tree values for aops
+- **Idle fork (H3 leftover)**: `p7di7u36o4` (name: `bright-h3-pseudoqueries`)
+  — fork of `jdyfwo1bxu` taken 2026-04-24 for H3 experiment. H3 declared
+  non-viable; this fork still holds the pseudo-query data and the
+  `search_content` column / index for reference. Ghost MCP doesn't expose
+  pause, so this is left running unless manually paused via Ghost UI.
 - **Prior fork**: `cbolbquuw3` (name: `autoresearch-rag`, ~15 GiB, running
-  again) — original DB. Was active through the pre-aops-tagging
-  experiments; paused/fell-over mid-session and we created
-  `jdyfwo1bxu` from scratch as a replacement. Not currently in use.
+  again) — original DB. Not in active rotation.
 
 See "Database fork workflow" below for the rule on when to fork.
 

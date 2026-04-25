@@ -45,3 +45,6 @@
 {"timestamp":"2026-04-24T11:11:21.230Z","domain":"aops","ndcg10":0.3409,"retrievalRecall":0.5795,"rankingRecall":0.3948,"queries":111,"description":"H1: sonnet + pre-computed reasoning pre-pass"}
 {"timestamp":"2026-04-24T13:17:22.673Z","domain":"aops","ndcg10":0.3409,"retrievalRecall":0.612,"rankingRecall":0.4025,"queries":111,"description":"H1-attempt2: sonnet + BRIEF technique-focused reasoning pre-pass"}
 {"timestamp":"2026-04-24T16:14:07.280Z","domain":"aops","ndcg10":0.3643,"retrievalRecall":0.6156,"rankingRecall":0.4373,"queries":111,"description":"baseline: sonnet effort=xhigh, concurrency=10, timeout=8min"}
+{"timestamp":"2026-04-24T23:26:33.960Z","domain":"aops","ndcg10":0.3436,"retrievalRecall":0.6267,"rankingRecall":0.406,"queries":111,"description":"H3: doc pseudo-queries via search_content BM25 (xhigh, concurrency=10)"}
+{"timestamp":"2026-04-25T00:50:46.972Z","domain":"aops","ndcg10":0.3693,"retrievalRecall":0.6521,"rankingRecall":0.4461,"queries":111,"description":"H3-v2: 3-way RRF (content BM25 + search_content BM25 + semantic)"}
+{"timestamp":"2026-04-25T02:34:22.132Z","domain":"aops","ndcg10":0.3617,"retrievalRecall":0.6532,"rankingRecall":0.4257,"queries":111,"description":"H3-v3: 3-way RRF + hint=pseudo_queries[0] in result lines"}

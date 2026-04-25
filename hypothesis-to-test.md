@@ -101,6 +101,9 @@ round surfaces partial-match results the agent can learn from.
 
 ## H3: Document pseudo-queries at ingest (doc expansion)
 
+**Status: TESTED on aops, declared non-viable after 3 attempts. Best variant (3-way RRF) gave +0.005 nDCG, +0.036 retrieval recall (p=0.09). Retrieval gain is real but doesn't translate to nDCG — bottleneck is the ranker, not retrieval. See experimental_log_bright.md for detailed analysis.**
+
+
 **Hypothesis.** For each chunk, LLM generates 3-5 natural-language queries
 the chunk could answer. These are stored as a searchable field (`meta.queries`
 or a concatenated text field for BM25). At retrieval time, user queries
