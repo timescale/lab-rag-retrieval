@@ -52,3 +52,4 @@
 {"timestamp":"2026-04-25T15:57:55.933Z","domain":"aops","ndcg10":0.3551,"retrievalRecall":0.6381,"rankingRecall":0.4108,"queries":111,"description":"H7: concept sketches as 4-way RRF (content+sketch BM25 + content+sketch semantic)"}
 {"timestamp":"2026-04-25T17:13:25.632Z","domain":"aops","ndcg10":0.3613,"retrievalRecall":0.6685,"rankingRecall":0.4332,"queries":111,"description":"H7-v2: 4-way RRF (content BM25 + search_content BM25 + content semantic + sketch semantic)"}
 {"timestamp":"2026-04-25T18:57:36.489Z","domain":"aops","ndcg10":0.3523,"retrievalRecall":0.6282,"rankingRecall":0.4142,"queries":111,"description":"H7-v3: same as v2 + limit 10->20, candidateLimit 30->60 defaults"}
+{"timestamp":"2026-04-25T20:24:43.627Z","domain":"aops","ndcg10":0.3538,"retrievalRecall":0.6417,"rankingRecall":0.4204,"queries":111,"description":"H8: H7-A2 + re-sort returned top-10 by sketch_semantic rank (concept-first ordering)"}

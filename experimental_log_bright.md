@@ -1538,3 +1538,33 @@ The H7-A2 retrieval recall ceiling (~0.67) is now well above the ranker's effect
 - Cross-encoder rerank as a separate-pass over A2's wider retrieval pool (earlier rerank attempts regressed on smaller pool — different setup now).
 - Candidate stratification: present results grouped by retrieval channel ("top sketch matches: ...; top content matches: ...") rather than RRF-flattened.
 - Ranker-targeted prompt: focus on the *last* search/ranking step rather than the search loop (we tested broader prompt changes; ranker-only is untested).
+
+---
+
+## H8: Sketch-semantic re-rank of returned results (2026-04-25)
+
+**Diagnostic (post-H7-A2).** Of all gold IDs across 111 queries: 38.7% ranked in top-10 (good), **27.1% seen but unranked** (the agent retrieved them but didn't pick them), 34.2% unseen. The 27% seen-but-unranked is the immediate biggest lever.
+
+**Hypothesis.** After RRF top-K selection, present results in sketch_semantic distance order (concept-similar first) instead of RRF score order. Same set of candidates, different presentation. Position bias in StructuredOutput should make concept-equivalent gold get picked.
+
+**Implementation.** 5-line change in mcp-server-aops.ts: build a sketch_sem rank map, re-sort topIds by it, tie-break by RRF.
+
+**Result.**
+
+| Metric | Baseline | H7-A2 | H8 | Δ vs base | Δ vs A2 |
+|--------|----------|-------|-----|-----------|---------|
+| nDCG@10 | 0.3643 | 0.3613 | 0.3538 | -0.011 | -0.008 |
+| Retrieval recall | 0.6156 | 0.6685 | 0.6417 | +0.026 | -0.027 |
+| Ranking recall | 0.4373 | 0.4332 | 0.4204 | -0.017 | -0.013 |
+
+vs H7-A2: retrieval recall *regressed by 0.027* (sign 16w/24l), ranking recall slightly down. H8 is strictly worse than the H7-A2 RRF order.
+
+**Analysis.** Counter-intuitive but consistent: the agent doesn't just position-bias-pick from a single result list — it uses result order as a signal for what to search NEXT. Reordering candidates changes the agent's iteration trajectory across its 16 tool calls. Concept-first ordering surfaces concept-similar (but query-dissimilar) docs early, the agent iterates on that direction, and overall coverage drops.
+
+### Decision
+
+**Declared non-viable on first attempt.** Reordering is the wrong intervention shape; the agent's iteration loop is sensitive to result order in ways we don't control. Reverting to RRF order. H7-A2 remains the baseline.
+
+### Generalizable finding
+
+Result-order changes in MCP responses have second-order effects on agent search trajectory. Any future intervention that wants to bias the ranker should NOT change the order of returned results — it must operate elsewhere (e.g., per-result content, post-hoc rerank, separate candidate pool). The agent treats early results as "hints" for next searches, so concept-first ordering paradoxically reduces concept coverage.
