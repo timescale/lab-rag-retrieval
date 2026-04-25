@@ -1568,3 +1568,30 @@ vs H7-A2: retrieval recall *regressed by 0.027* (sign 16w/24l), ranking recall s
 ### Generalizable finding
 
 Result-order changes in MCP responses have second-order effects on agent search trajectory. Any future intervention that wants to bias the ranker should NOT change the order of returned results — it must operate elsewhere (e.g., per-result content, post-hoc rerank, separate candidate pool). The agent treats early results as "hints" for next searches, so concept-first ordering paradoxically reduces concept coverage.
+
+---
+
+## H9: Up-weight sketch_semantic in RRF (2026-04-26)
+
+**Hypothesis.** H7-A2's RRF gives equal weight to all 4 channels. Sketch_semantic was the strongest concept-bridge signal in diagnostics (rank #3 for harmonic mean problem). Up-weight it 2× so concept-equivalent gold dominates fusion.
+
+**Result.**
+
+| Metric | Baseline | H7-A2 | H9 | Δ vs base | Δ vs A2 |
+|--------|----------|-------|-----|-----------|---------|
+| nDCG@10 | 0.3643 | 0.3613 | 0.3380 | -0.026 | -0.023 |
+| Retrieval recall | 0.6156 | 0.6685 | 0.6206 | +0.005 | -0.048 |
+| Ranking recall | 0.4373 | 0.4332 | 0.4093 | -0.028 | -0.024 |
+| Zero-gold | 17 | 10 | 17 | — | +7 |
+
+H9 *erased* the H7-A2 retrieval-recall gain (back to baseline level). Strong regression all around.
+
+**Analysis.** Up-weighting one channel breaks RRF's balance. The fusion now over-relies on sketch_semantic which has its own failure modes (e.g., docs with no sketch get pushed down, surface-relevant content gets demoted). The retrieval recall finding from H7-A2 depended on equal-weight RRF — *all* four channels contributing independently is what made the union of candidates rich.
+
+### Decision
+
+**Declared non-viable on first attempt.** Reverting weight back to 1.0 across all channels. H7-A2 (equal-weight 4-way RRF) remains the adopted baseline.
+
+### Generalizable finding
+
+Equal-weight RRF is robust precisely because it equally values every channel's evidence. Up-weighting one channel imports that channel's failure modes into the fused ranking. Lesson echoes H8: changes to fusion or order have second-order effects on the iterative search trajectory; they're not pure parameter tweaks.
