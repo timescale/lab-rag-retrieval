@@ -57,12 +57,11 @@ const server = new McpServer({
 
 server.tool(
   "me_memory_search",
-  `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — overly-specific grep patterns silently filter out correct documents. Default to leaving grep empty. Use excludeIds to drop specific document IDs. Use treeMatch to filter by source label (lquery pattern). Use techniquesAny / categoryAny to filter by mathematical concept (results have "meta" with techniques + category). The corpus includes pre-computed technique tags on the useful sources (aops / math_test / math_train / theoremqa); aqua/camel/gsm have no meta.`,
+  `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — overly-specific grep patterns silently filter out correct documents. Default to leaving grep empty. Use treeMatch to filter by source label (lquery pattern). Use techniquesAny / categoryAny to filter by mathematical concept (results have "meta" with techniques + category). The corpus includes pre-computed technique tags on the useful sources (aops / math_test / math_train / theoremqa); aqua/camel/gsm have no meta.`,
   {
     semantic: z.string().nullable().describe("Natural language query for semantic/meaning search"),
     fulltext: z.string().nullable().describe("Keywords/phrases for BM25 exact matching"),
     grep: z.string().nullable().describe("Regex pattern (case-insensitive). HARD AND filter on all other modes — use only for highly distinctive literal terms you KNOW must appear verbatim. Leave empty when unsure."),
-    excludeIds: z.array(z.string()).nullable().describe("Document IDs to exclude from results. Filtered out silently across all modes before returning."),
     treeMatch: z.string().nullable().describe("ltree lquery pattern to restrict results by source label (e.g. 'aops|math_train|math_test|theoremqa')."),
     techniquesAny: z.array(z.string()).nullable().describe(`Filter: keep only docs whose meta.techniques array overlaps with any of these tags. Only the useful sources have tags; aqua/camel/gsm rows return nothing if this filter is used. Canonical technique names (lowercase_with_underscores): ${TECHNIQUES_LIST}.`),
     categoryAny: z.array(z.string()).nullable().describe(`Filter: keep only docs whose meta.category is one of these. Only the useful sources have meta; aqua/camel/gsm rows return nothing if this filter is used. Categories: ${CATEGORIES_LIST}.`),
@@ -83,13 +82,6 @@ server.tool(
     if (hasGrep) {
       filters.push(`content ~* $${paramIdx}`);
       filterValues.push(params.grep);
-      paramIdx++;
-    }
-
-    const hasExclude = params.excludeIds && params.excludeIds.length > 0;
-    if (hasExclude) {
-      filters.push(`id != ALL($${paramIdx}::text[])`);
-      filterValues.push(params.excludeIds);
       paramIdx++;
     }
 
@@ -188,11 +180,6 @@ server.tool(
           semFilterValues.push(params.grep);
           semParamIdx++;
         }
-        if (hasExclude) {
-          semFilters.push(`id != ALL($${semParamIdx}::text[])`);
-          semFilterValues.push(params.excludeIds);
-          semParamIdx++;
-        }
         if (HAS_SILENT_EXCLUSIONS) {
           semFilters.push(`id != ALL($${semParamIdx}::text[])`);
           semFilterValues.push(SILENT_EXCLUDED_IDS);
@@ -289,7 +276,6 @@ server.tool(
       const clauses: string[] = [];
       const qparams: unknown[] = [params.grep, limit];
       let idx = 3;
-      if (hasExclude) { clauses.push(`id != ALL($${idx}::text[])`); qparams.push(params.excludeIds); idx++; }
       if (HAS_SILENT_EXCLUSIONS) { clauses.push(`id != ALL($${idx}::text[])`); qparams.push(SILENT_EXCLUDED_IDS); idx++; }
       if (hasTreeMatch) { clauses.push(`tree ~ $${idx}::lquery`); qparams.push(params.treeMatch); idx++; }
       if (hasTechniques) {

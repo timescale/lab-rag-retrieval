@@ -23,12 +23,11 @@ const server = new McpServer({
 
 server.tool(
   "me_memory_search",
-  `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — it applies to BOTH semantic and fulltext results, so overly-specific grep patterns silently filter out correct documents that phrase things differently. Only use grep for highly distinctive literal terms you're confident must appear verbatim (rare API names, unique identifiers). Default to leaving grep empty. Use excludeIds to drop specific document IDs.`,
+  `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — it applies to BOTH semantic and fulltext results, so overly-specific grep patterns silently filter out correct documents that phrase things differently. Only use grep for highly distinctive literal terms you're confident must appear verbatim (rare API names, unique identifiers). Default to leaving grep empty.`,
   {
     semantic: z.string().nullable().describe("Natural language query for semantic/meaning search"),
     fulltext: z.string().nullable().describe("Keywords/phrases for BM25 exact matching"),
     grep: z.string().nullable().describe("Regex pattern (case-insensitive). HARD AND filter on all other modes — use only for highly distinctive literal terms you KNOW must appear verbatim. Leave empty when unsure."),
-    excludeIds: z.array(z.string()).nullable().describe("Document IDs to exclude from results. Filtered out silently across all modes before returning."),
     candidateLimit: z.number().int().min(0).max(1000).describe("Candidates per search mode before RRF fusion (0 = default 30)"),
     limit: z.number().int().min(0).max(1000).describe("Maximum results (0 = default 10)"),
   },
@@ -47,13 +46,6 @@ server.tool(
     if (hasGrep) {
       filters.push(`content ~* $${paramIdx}`);
       filterValues.push(params.grep);
-      paramIdx++;
-    }
-
-    const hasExclude = params.excludeIds && params.excludeIds.length > 0;
-    if (hasExclude) {
-      filters.push(`id != ALL($${paramIdx}::text[])`);
-      filterValues.push(params.excludeIds);
       paramIdx++;
     }
 
@@ -94,11 +86,6 @@ server.tool(
         if (hasGrep) {
           semFilters.push(`content ~* $${semParamIdx}`);
           semFilterValues.push(params.grep);
-          semParamIdx++;
-        }
-        if (hasExclude) {
-          semFilters.push(`id != ALL($${semParamIdx}::text[])`);
-          semFilterValues.push(params.excludeIds);
           semParamIdx++;
         }
         const semFilterClause = semFilters.length > 0 ? " AND " + semFilters.join(" AND ") : "";
@@ -144,18 +131,12 @@ server.tool(
         return { ...row, score: t.score };
       }).filter(Boolean) as typeof results;
     } else if (hasGrep) {
-      // Grep-only search (honor excludeIds)
-      const clauses: string[] = [];
-      const qparams: unknown[] = [params.grep, limit];
-      let idx = 3;
-      if (hasExclude) { clauses.push(`id != ALL($${idx}::text[])`); qparams.push(params.excludeIds); idx++; }
-      const extra = clauses.length > 0 ? " AND " + clauses.join(" AND ") : "";
       const rows = await sql.unsafe<Array<{ id: string; content: string }>>(
         `SELECT id, content FROM ${ACTIVE_TABLE}
-         WHERE content ~* $1${extra}
+         WHERE content ~* $1
          ORDER BY created_at DESC
          LIMIT $2`,
-        qparams as any[],
+        [params.grep, limit] as any[],
       );
       results = rows.map((r) => ({ ...r, score: 0 }));
     } else {
