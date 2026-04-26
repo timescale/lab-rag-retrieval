@@ -70,24 +70,29 @@ BRIGHT eval options:
 - Scoring: SQuAD-style F1 + EM, max over answer aliases
 
 ### BRIGHT (12 domains)
-Current Haiku scores (mean 0.347 across 12 domains):
 
-| Tier | Domain | nDCG@10 |
-|------|--------|---------|
-| Text-rich | biology | 0.553 |
-| | theoremqa_theorems | 0.512 |
-| | psychology | 0.472 |
-| | earth_science | 0.459 |
-| | pony | 0.409 |
-| Economics/social | economics | 0.369 |
-| | sustainable_living | 0.360 |
-| | stackoverflow | 0.341 |
-| | robotics | 0.293 |
-| Code/math | aops | 0.328 (with full stack) |
-| | leetcode | 0.177 |
-| | theoremqa_questions | 0.067 |
-| **Sonnet econ** | | 0.462 |
-| **Sonnet aops** | | 0.333 |
+Sonnet max-effort scores (2026-04-26 rerun, mean nDCG@10 **0.452**):
+
+| Domain | nDCG@10 | RR | RaR | Q | Prior haiku |
+|--------|---------|-----|-----|---|-------------|
+| biology | **0.666** | 0.754 | 0.691 | 103 | 0.553 |
+| theoremqa_questions | **0.614** | 0.773 | 0.711 | 194 | 0.067 |
+| psychology | 0.570 | 0.759 | 0.602 | 101 | 0.472 |
+| theoremqa_theorems | 0.515 | 0.781 | 0.618 | 76 | 0.512 |
+| sustainable_living | 0.488 | 0.662 | 0.527 | 108 | 0.360 |
+| economics | 0.455 | 0.648 | 0.497 | 103 | 0.369 |
+| stackoverflow | 0.429 | 0.683 | 0.526 | 117 | 0.341 |
+| robotics | 0.418 | 0.509 | 0.445 | 101 | 0.293 |
+| leetcode | 0.370 | 0.420 | 0.402 | 142 | 0.177 |
+| aops | 0.338 | 0.619 | 0.400 | 111 | 0.328 (haiku) / 0.364 (sonnet xhigh) |
+| pony | 0.329 | 0.474 | 0.178 | 112 | 0.409 (regression) |
+| earth_science | 0.233 | 0.288 | 0.220 | 116 | 0.459 (regression — DB resume noise + default-prompt mismatch?) |
+
+Notes:
+- Sonnet max gives mean 0.452 vs prior haiku 0.347 mean (+0.105 / +30% relative).
+- 8 of 12 domains improved over prior haiku baselines.
+- 2 regressions: pony (default prompt may not capitalize on sonnet) and earth_science (DB pause/resume mid-eval; likely re-run worth it).
+- aops at sonnet max (0.338) is *worse* than aops at sonnet xhigh (0.364). Max effort hurts aops; the H7-A2 retrieval-recall gain disappears at max effort (agent goes narrower with deeper thinking).
 
 ## Architecture (Autoresearch Pattern)
 

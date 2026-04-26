@@ -55,3 +55,14 @@
 {"timestamp":"2026-04-25T20:24:43.627Z","domain":"aops","ndcg10":0.3538,"retrievalRecall":0.6417,"rankingRecall":0.4204,"queries":111,"description":"H8: H7-A2 + re-sort returned top-10 by sketch_semantic rank (concept-first ordering)"}
 {"timestamp":"2026-04-25T22:12:25.860Z","domain":"aops","ndcg10":0.3379,"retrievalRecall":0.6208,"rankingRecall":0.4089,"queries":111,"description":"H9: H7-A2 + sketch_sem RRF weight 2x (up-weight concept bridge)"}
 {"timestamp":"2026-04-26T09:03:37.284Z","domain":"aops","ndcg10":0.3377,"retrievalRecall":0.6188,"rankingRecall":0.3997,"queries":111,"description":"All-domains-rerun: aops sonnet effort=max"}
+{"timestamp":"2026-04-26T10:19:58.864Z","domain":"theoremqa_questions","ndcg10":0.6137,"retrievalRecall":0.7733,"rankingRecall":0.7107,"queries":194,"description":"All-domains-rerun: theoremqa_questions sonnet effort=max"}
+{"timestamp":"2026-04-26T10:42:21.762Z","domain":"theoremqa_theorems","ndcg10":0.5152,"retrievalRecall":0.7813,"rankingRecall":0.6183,"queries":76,"description":"All-domains-rerun: theoremqa_theorems sonnet effort=max"}
+{"timestamp":"2026-04-26T11:05:20.891Z","domain":"pony","ndcg10":0.3286,"retrievalRecall":0.4735,"rankingRecall":0.1781,"queries":112,"description":"All-domains-rerun: pony sonnet effort=max"}
+{"timestamp":"2026-04-26T11:28:27.366Z","domain":"psychology","ndcg10":0.57,"retrievalRecall":0.7587,"rankingRecall":0.6018,"queries":101,"description":"All-domains-rerun: psychology sonnet effort=max"}
+{"timestamp":"2026-04-26T11:48:35.375Z","domain":"biology","ndcg10":0.6664,"retrievalRecall":0.7544,"rankingRecall":0.6912,"queries":103,"description":"All-domains-rerun: biology sonnet effort=max"}
+{"timestamp":"2026-04-26T12:09:52.615Z","domain":"sustainable_living","ndcg10":0.4882,"retrievalRecall":0.6618,"rankingRecall":0.527,"queries":108,"description":"All-domains-rerun: sustainable_living sonnet effort=max"}
+{"timestamp":"2026-04-26T12:32:54.014Z","domain":"robotics","ndcg10":0.4176,"retrievalRecall":0.5091,"rankingRecall":0.4449,"queries":101,"description":"All-domains-rerun: robotics sonnet effort=max"}
+{"timestamp":"2026-04-26T13:21:07.947Z","domain":"leetcode","ndcg10":0.3701,"retrievalRecall":0.42,"rankingRecall":0.4021,"queries":142,"description":"All-domains-rerun: leetcode sonnet effort=max"}
+{"timestamp":"2026-04-26T13:57:38.899Z","domain":"economics","ndcg10":0.4555,"retrievalRecall":0.6484,"rankingRecall":0.4967,"queries":103,"description":"All-domains-rerun: economics sonnet effort=max"}
+{"timestamp":"2026-04-26T14:31:21.124Z","domain":"stackoverflow","ndcg10":0.4293,"retrievalRecall":0.6825,"rankingRecall":0.5262,"queries":117,"description":"All-domains-rerun: stackoverflow sonnet effort=max"}
+{"timestamp":"2026-04-26T15:31:27.566Z","domain":"earth_science","ndcg10":0.2326,"retrievalRecall":0.2879,"rankingRecall":0.2199,"queries":116,"description":"All-domains-rerun: earth_science sonnet effort=max (retry after fork resume)"}
