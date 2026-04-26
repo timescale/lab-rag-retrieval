@@ -32,6 +32,24 @@ const HAS_SILENT_EXCLUSIONS = SILENT_EXCLUDED_IDS.length > 0;
 
 const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
 
+// Detect optional H7-A2 columns/indexes. Aops corpus has them; other
+// blended corpora (e.g. theoremqa_questions) may not.
+const HAS_SKETCH = await (async () => {
+  const r = await sql.unsafe(
+    `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'sketch_embedding'`,
+    [ACTIVE_TABLE],
+  );
+  return r.length > 0;
+})();
+const HAS_SEARCH_CONTENT = await (async () => {
+  const r = await sql.unsafe(
+    `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'search_content'`,
+    [ACTIVE_TABLE],
+  );
+  return r.length > 0;
+})();
+process.stderr.write(`[mcp-server-aops] table=${ACTIVE_TABLE} sketch=${HAS_SKETCH} search_content=${HAS_SEARCH_CONTENT}\n`);
+
 const server = new McpServer({
   name: "recall",
   version: "1.0.0",
@@ -130,8 +148,9 @@ server.tool(
         // H7-v2: 4-way RRF — content BM25 + search_content BM25 (content +
         // pseudo_queries) for keyword channels. Drop sketch BM25 (over-clusters
         // on technique words). Sketch SEMANTIC is the concept-bridge channel.
+        // Tables without H7-A2 metadata fall back to content-BM25 only.
         const tBm25 = performance.now();
-        const [bm25c, bm25sc] = await Promise.all([
+        const queries = [
           sql.unsafe<Array<{ id: string }>>(
             `SELECT id FROM ${ACTIVE_TABLE}
              ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
@@ -139,17 +158,20 @@ server.tool(
              LIMIT $${paramIdx + 1}`,
             [...filterValues, params.fulltext, candidateLimit] as any[],
           ),
-          sql.unsafe<Array<{ id: string }>>(
+        ];
+        if (HAS_SEARCH_CONTENT) {
+          queries.push(sql.unsafe<Array<{ id: string }>>(
             `SELECT id FROM ${ACTIVE_TABLE}
              ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
              ORDER BY search_content <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_search_content_bm25_idx')
              LIMIT $${paramIdx + 1}`,
             [...filterValues, params.fulltext, candidateLimit] as any[],
-          ),
-        ]);
+          ));
+        }
+        const results = await Promise.all(queries);
         timings.bm25_ms = Math.round(performance.now() - tBm25);
-        bm25Results.push(...bm25c);
-        sketchBm25Results.push(...bm25sc); // re-using the slot; now holds search_content BM25
+        bm25Results.push(...results[0]!);
+        if (HAS_SEARCH_CONTENT && results[1]) sketchBm25Results.push(...results[1]);
       }
 
       if (hasSemantic) {
@@ -201,7 +223,8 @@ server.tool(
         }
         const semFilterClause = semFilters.length > 0 ? " AND " + semFilters.join(" AND ") : "";
         // H7: semantic on content embedding AND on sketch_embedding (concept).
-        const [sem, semSketch] = await Promise.all([
+        // Tables without sketch_embedding fall back to content embedding only.
+        const semQueries = [
           sql.unsafe<Array<{ id: string }>>(
             `SELECT id FROM ${ACTIVE_TABLE}
              WHERE embedding IS NOT NULL
@@ -210,18 +233,21 @@ server.tool(
              LIMIT $2`,
             [vec, candidateLimit, ...semFilterValues] as any[],
           ),
-          sql.unsafe<Array<{ id: string }>>(
+        ];
+        if (HAS_SKETCH) {
+          semQueries.push(sql.unsafe<Array<{ id: string }>>(
             `SELECT id FROM ${ACTIVE_TABLE}
              WHERE sketch_embedding IS NOT NULL
                AND (sketch_embedding <=> $1::halfvec) < 1.0${semFilterClause}
              ORDER BY (sketch_embedding <=> $1::halfvec) ASC, created_at DESC
              LIMIT $2`,
             [vec, candidateLimit, ...semFilterValues] as any[],
-          ),
-        ]);
+          ));
+        }
+        const semRes = await Promise.all(semQueries);
         timings.semantic_ms = Math.round(performance.now() - tSem);
-        semanticResults.push(...sem);
-        sketchSemResults.push(...semSketch);
+        semanticResults.push(...semRes[0]!);
+        if (HAS_SKETCH && semRes[1]) sketchSemResults.push(...semRes[1]);
       }
 
       const scores = new Map<string, number>();

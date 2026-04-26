@@ -28,7 +28,7 @@ function parseArgs() {
   let model = "haiku";
   let reason = false;
   let reasonModel = "";
-  let effort = "xhigh"; // default for this harness; overridable per run
+  let effort = "max"; // default for this harness; overridable per run
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--samples" && args[i + 1]) {
@@ -87,7 +87,7 @@ function mcpConfigFor(
 }
 
 const MCP_TOOLS = "mcp__recall__me_memory_search";
-const TIMEOUT_MS = 480_000;
+const TIMEOUT_MS = 720_000;
 const MAX_RETRIES = 2;
 const JSON_SCHEMA = '{"type":"object","properties":{"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
 
