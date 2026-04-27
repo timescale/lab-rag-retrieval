@@ -67,3 +67,6 @@
 {"timestamp":"2026-04-26T14:31:21.124Z","domain":"stackoverflow","ndcg10":0.4293,"retrievalRecall":0.6825,"rankingRecall":0.5262,"queries":117,"description":"All-domains-rerun: stackoverflow sonnet effort=max"}
 {"timestamp":"2026-04-26T15:31:27.566Z","domain":"earth_science","ndcg10":0.2326,"retrievalRecall":0.2879,"rankingRecall":0.2199,"queries":116,"description":"All-domains-rerun: earth_science sonnet effort=max (retry after fork resume)"}
 {"timestamp":"2026-04-26T19:36:49.046Z","domain":"pony","ndcg10":0.151,"retrievalRecall":0.1811,"rankingRecall":0.0846,"queries":112,"description":"Pony retry: opus max effort + cleaned MCP (no excludeIds)"}
+{"timestamp":"2026-04-27T09:01:06.596Z","domain":"pony","ndcg10":0.0922,"retrievalRecall":0.0951,"rankingRecall":0.042,"queries":112,"description":"pony retry: opus max + specialized pony prompt (anti-overspec, primer-targeting)"}
+{"timestamp":"2026-04-27T09:57:44.344Z","domain":"pony","ndcg10":0.4014,"retrievalRecall":0.4101,"rankingRecall":0.1988,"queries":112,"description":"pony retry: opus max + specialized pony prompt (anti-overspec, primer-targeting) [DB-resumed]"}
+{"timestamp":"2026-04-27T13:16:21.435Z","domain":"pony","ndcg10":0.5755,"retrievalRecall":0.5809,"rankingRecall":0.2835,"queries":112,"description":"pony retry: opus max + specialized prompt + DB heartbeat keepalive"}

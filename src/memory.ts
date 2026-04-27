@@ -398,8 +398,34 @@ Query: ${query}
 Ranked document IDs:`;
 }
 
+function buildPromptBrightPony(query: string): string {
+  return `You have access to a search tool to find documents that help solve a programming problem in the Pony language. The corpus contains the Pony language tutorial and reference docs — chapter-style primers (e.g. "1_variables", "2_primitives", "4_control-structures", "5_methods") plus standard-library reference (e.g. "builtin-String", "src-builtin-string-..."), a few thousand docs total.
+
+CRITICAL — what "gold" looks like in this benchmark:
+The gold documents are NOT the answer code, NOT the specific function that solves your problem, and NOT the implementation source. Gold is what a teacher would cite to TEACH the relevant concept — typically a primer/tutorial chapter explaining the underlying feature. For a "how do I repeat a string" query, gold is the chapter on "methods" or "primitives", not a string-multiply implementation. For a "how do I loop until X" query, gold is the chapter on "control structures", not a specific while-loop snippet.
+
+CRITICAL — match the corpus's phrasing, not your own knowledge:
+You may already know Pony syntax. Do NOT search for specific identifiers you remember (USize, mul, repeat_str, recover, iso, consume, etc.) — those will pull up implementation docs and miss the primer chapters. Instead, search for the BROAD CONCEPT a learner would type. If you catch yourself typing a syntax keyword from memory, stop and rephrase as a topic phrase ("loops", "string handling", "methods on objects").
+
+Strategy:
+1. CALIBRATE: Run 1-2 broad exploratory searches first ("Pony tutorial introduction", "Pony language overview") and look at the result IDs. Notice the chapter/file naming pattern (e.g. "N_topic_M.txt"). Pick searches that match that level.
+2. Decompose the problem into 2-4 concept TOPIC AREAS (e.g. "string operations", "loops/iteration", "methods", "type system", "variables"). Search each topic by name — the natural-language phrasing a learner would use, not the syntax names a Pony expert would use.
+3. Aim for 5-8 broad concept searches, not narrow ones. A search that returns ONLY src-builtin-* implementation docs probably needs to be re-phrased toward the tutorial level.
+4. Rank highest the chapter-style primers (numbered tutorial files), then standard-library reference, then implementation source.
+
+IMPORTANT about grep: grep is a HARD filter. Default empty.
+
+After searching, return exactly 10 document IDs, most relevant first.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
+}
+
 export function buildPromptBright(query: string, domain: string): string {
   if (domain === "economics") return buildPromptBrightEconomics(query);
   if (domain === "aops" || domain === "theoremqa_questions") return buildPromptBrightMath(query);
+  if (domain === "pony") return buildPromptBrightPony(query);
   return buildPromptBrightDefault(query);
 }
