@@ -71,3 +71,4 @@
 {"timestamp":"2026-04-27T09:57:44.344Z","domain":"pony","ndcg10":0.4014,"retrievalRecall":0.4101,"rankingRecall":0.1988,"queries":112,"description":"pony retry: opus max + specialized pony prompt (anti-overspec, primer-targeting) [DB-resumed]"}
 {"timestamp":"2026-04-27T13:16:21.435Z","domain":"pony","ndcg10":0.5755,"retrievalRecall":0.5809,"rankingRecall":0.2835,"queries":112,"description":"pony retry: opus max + specialized prompt + DB heartbeat keepalive"}
 {"timestamp":"2026-04-27T14:50:22.611Z","domain":"aops","ndcg10":0.3477,"retrievalRecall":0.6624,"rankingRecall":0.4078,"queries":111,"description":"aops opus max + H7-A2 stack"}
+{"timestamp":"2026-04-27T15:54:56.835Z","domain":"aops","ndcg10":0.3541,"retrievalRecall":0.6813,"rankingRecall":0.403,"queries":111,"description":"aops opus max + math prompt v2 (sibling-gold reframe + ranking guidance)"}
