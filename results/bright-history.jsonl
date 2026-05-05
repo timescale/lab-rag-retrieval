@@ -73,3 +73,4 @@
 {"timestamp":"2026-04-27T14:50:22.611Z","domain":"aops","ndcg10":0.3477,"retrievalRecall":0.6624,"rankingRecall":0.4078,"queries":111,"description":"aops opus max + H7-A2 stack"}
 {"timestamp":"2026-04-27T15:54:56.835Z","domain":"aops","ndcg10":0.3541,"retrievalRecall":0.6813,"rankingRecall":0.403,"queries":111,"description":"aops opus max + math prompt v2 (sibling-gold reframe + ranking guidance)"}
 {"timestamp":"2026-05-05T15:05:26.809Z","domain":"leetcode","ndcg10":0.5219,"retrievalRecall":0.5748,"rankingRecall":0.5269,"queries":142,"description":"leetcode opus max + specialized leetcode prompt, prod-2 DB"}
+{"timestamp":"2026-05-05T18:34:14.096Z","domain":"aops","ndcg10":0.3386,"retrievalRecall":0.5819,"rankingRecall":0.3838,"queries":111,"description":"aops opus max v3: leetcode-style stop-and-rephrase + calibration in math prompt"}
