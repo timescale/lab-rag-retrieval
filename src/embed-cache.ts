@@ -80,36 +80,46 @@ export async function embedWithCache(
   batchSize: number,
   cachePrefix: string,
 ): Promise<number[][]> {
+  // Use stderr for progress so it isn't block-buffered when stdout is redirected to a file.
+  const log = (m: string) => process.stderr.write(m + "\n");
+
   // Step 1: truncate any doc that exceeds per-doc token limit.
+  log(`  Truncating overlong docs (n=${texts.length})...`);
   const { safe, truncated, maxOriginal } = truncateOverlong(texts);
   if (truncated > 0) {
-    console.log(
-      `  Truncated ${truncated}/${texts.length} docs to ${MAX_TOKENS_PER_DOC} tokens (max was ${maxOriginal})`,
-    );
+    log(`  Truncated ${truncated}/${texts.length} docs to ${MAX_TOKENS_PER_DOC} tokens (max was ${maxOriginal})`);
   }
 
   // Step 2: compute exact token counts once and pack batches.
+  log(`  Counting tokens...`);
   const tokenCounts = safe.map((t) => enc().encode(t).length);
+  log(`  Packing batches...`);
   const batches = packBatches(safe, tokenCounts, batchSize);
+  log(`  ${batches.length} batches; reading cache + fetching missing...`);
 
   const all: number[][] = [];
   let cached = 0;
   let fetched = 0;
 
+  let bi = 0;
   for (const batch of batches) {
     const key = batchCacheKey(cachePrefix, batch);
     const hit = cache.get(key);
     if (hit) {
       all.push(...hit);
       cached += batch.length;
-      continue;
+    } else {
+      const batchEmbeddings = await embedFn(batch);
+      cache.set(key, batchEmbeddings);
+      all.push(...batchEmbeddings);
+      fetched += batch.length;
     }
-    const batchEmbeddings = await embedFn(batch);
-    cache.set(key, batchEmbeddings);
-    all.push(...batchEmbeddings);
-    fetched += batch.length;
+    bi++;
+    if (bi % 20 === 0 || bi === batches.length) {
+      log(`    batch ${bi}/${batches.length}: cached=${cached} fetched=${fetched}`);
+    }
   }
 
-  console.log(`  Embeddings: ${cached} cached, ${fetched} fetched from API`);
+  log(`  Embeddings: ${cached} cached, ${fetched} fetched from API`);
   return all;
 }
