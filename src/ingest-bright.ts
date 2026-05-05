@@ -42,7 +42,17 @@ async function main() {
   console.log(`${docs.length} documents loaded`);
 
   const tableName = brightTableName(domain);
-  const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
+  // Tiger's LB closes idle server sockets, so we let postgres.js close the
+  // pool's idle conns and reopen on demand (default idle_timeout). Setting
+  // idle_timeout=0 caused stale conns to be reused, hitting CONNECTION_CLOSED
+  // on the next write. max_lifetime=0 prevents postgres.js from rotating
+  // an actively-streaming connection mid-COPY.
+  const sql = postgres(process.env.DATABASE_URL!, {
+    onnotice: () => {},
+    max_lifetime: 0,
+    idle_timeout: 20,
+    connect_timeout: 30,
+  });
 
   // Check existing data
   const [row] = await sql.unsafe(`SELECT count(*)::int as count FROM ${tableName}`);
@@ -69,7 +79,18 @@ async function main() {
   await sql.end();
 }
 
+// Diagnostic hooks — last run silently exited mid-COPY with no error logged.
+const log = (m: string) => process.stderr.write(`[ingest] ${new Date().toISOString()} ${m}\n`);
+process.on("uncaughtException", (e) => { log(`UNCAUGHT EXCEPTION: ${e?.message}\n${e?.stack}`); process.exit(2); });
+process.on("unhandledRejection", (e: any) => { log(`UNHANDLED REJECTION: ${e?.message ?? e}\n${e?.stack ?? ""}`); process.exit(3); });
+process.on("SIGTERM", () => { log("got SIGTERM"); process.exit(15); });
+process.on("SIGINT", () => { log("got SIGINT"); process.exit(2); });
+process.on("SIGPIPE", () => { log("got SIGPIPE — likely COPY stream broke"); });
+process.on("exit", (code) => { log(`process exit code=${code}`); });
+process.on("beforeExit", (code) => { log(`beforeExit code=${code}`); });
+log(`pid=${process.pid} starting`);
+
 main().catch((err) => {
-  console.error(err);
+  log(`main caught error: ${err?.message ?? err}\n${err?.stack ?? ""}`);
   process.exit(1);
 });

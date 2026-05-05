@@ -131,37 +131,100 @@ export async function ingestBright(
   console.log(`  Embedding ${contents.length} documents...`);
   const embeddings = await embedWithCache(contents, embed, EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL);
 
+  // The embedding cache step takes 10-30 min during which the original sql
+  // connection sits idle. Tiger Cloud's LB closes idle server sockets, but
+  // postgres.js doesn't always notice, so the next query (DROP INDEX) hangs
+  // forever silently — event loop drains, process exits 0. Refresh the
+  // postgres client now that we have embeddings and need DB-heavy work.
+  process.stderr.write(`[ingestBright] ${new Date().toISOString()} closing stale sql client and reopening fresh one for DB-heavy phase\n`);
+  try { await sql.end({ timeout: 5 }); } catch {}
+  // Re-import postgres lazily because the caller passed in `sql` as Sql<{}>.
+  const postgres = (await import("postgres")).default;
+  sql = postgres(process.env.DATABASE_URL!, {
+    onnotice: () => {},
+    max_lifetime: 0,
+    idle_timeout: 20,
+    connect_timeout: 30,
+  }) as Sql;
+  // Sanity-check the new conn before the long DB-heavy phase
+  await sql.unsafe(`SELECT 1`);
+
   // Drop indexes for fast bulk insert
-  console.log(`  Dropping indexes for bulk insert...`);
+  const dlog = (m: string) => process.stderr.write(`[ingestBright] ${new Date().toISOString()} ${m}\n`);
+  dlog(`dropping indexes`);
   await sql.unsafe(`DROP INDEX IF EXISTS ${T}_embedding_hnsw_idx`);
   await sql.unsafe(`DROP INDEX IF EXISTS ${T}_content_bm25_idx`);
   await sql.unsafe(`DROP INDEX IF EXISTS ${T}_tree_gist_idx`);
 
-  // COPY for fast bulk insert
-  console.log(`  Inserting ${docs.length} rows via COPY...`);
-  const writable = await sql.unsafe(`COPY ${T} (id, content, tree, embedding) FROM STDIN`).writable();
-
   // PostgreSQL text type rejects NUL bytes (U+0000); strip them before COPY.
   const stripNul = (s: string) => s.replace(/\x00/g, "");
-  for (let i = 0; i < docs.length; i++) {
-    const doc = docs[i]!;
-    const vec = `[${embeddings[i]!.join(",")}]`;
-    const esc = (s: string) => stripNul(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
-    const tree = brightSourceTree(doc.id) ?? "\\N"; // \N = NULL in COPY text format
-    const line = `${esc(doc.id)}\t${esc(doc.content)}\t${tree}\t${vec}\n`;
-    if (!writable.write(line)) {
-      await new Promise<void>((resolve) => writable.once("drain", resolve));
-    }
-    if ((i + 1) % 10000 === 0) {
-      process.stdout.write(`  Progress: ${i + 1}/${docs.length}\n`);
+  const esc = (s: string) => stripNul(s).replace(/\\/g, "\\\\").replace(/\t/g, "\\t").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+
+  // Stream COPY in small batches so a single broken/closed underlying socket
+  // only loses one batch's worth of work and we can retry it. Earlier we hit
+  // a failure mode where postgres.js's COPY writable silently lost its socket
+  // ~10k rows in (no error/close event), causing the event loop to drain and
+  // the process to exit cleanly with 0 — losing the whole COPY.
+  const BATCH_SIZE = 10_000;
+  const MAX_RETRIES = 3;
+  console.log(`  Inserting ${docs.length} rows via COPY (${BATCH_SIZE}-row batches)...`);
+
+  async function copyBatch(start: number, end: number): Promise<void> {
+    const writable = await sql.unsafe(`COPY ${T} (id, content, tree, embedding) FROM STDIN`).writable();
+    let copyErr: any = null;
+    writable.on("error", (e: any) => { copyErr = e; });
+    try {
+      for (let i = start; i < end; i++) {
+        if (copyErr) throw copyErr;
+        const doc = docs[i]!;
+        const vec = `[${embeddings[i]!.join(",")}]`;
+        const tree = brightSourceTree(doc.id) ?? "\\N";
+        const line = `${esc(doc.id)}\t${esc(doc.content)}\t${tree}\t${vec}\n`;
+        const ok = writable.write(line);
+        if (!ok) {
+          await new Promise<void>((resolve, reject) => {
+            const onDrain = () => { writable.off("error", onErr); resolve(); };
+            const onErr = (e: any) => { writable.off("drain", onDrain); reject(e); };
+            writable.once("drain", onDrain);
+            writable.once("error", onErr);
+          });
+        }
+      }
+      await new Promise<void>((resolve, reject) => {
+        writable.end((err?: any) => err ? reject(err) : resolve());
+        writable.once("error", reject);
+      });
+    } catch (e) {
+      try { writable.destroy(); } catch {}
+      throw e;
     }
   }
 
-  await new Promise<void>((resolve, reject) => {
-    writable.end(() => resolve());
-    writable.on("error", reject);
-  });
-  process.stdout.write(`  Progress: ${docs.length}/${docs.length}\n`);
+  for (let start = 0; start < docs.length; start += BATCH_SIZE) {
+    const end = Math.min(start + BATCH_SIZE, docs.length);
+    let attempt = 0;
+    for (;;) {
+      try {
+        await copyBatch(start, end);
+        break;
+      } catch (e: any) {
+        attempt++;
+        dlog(`batch ${start}-${end} attempt ${attempt} failed: ${e?.message ?? e}`);
+        if (attempt >= MAX_RETRIES) throw new Error(`batch ${start}-${end} failed after ${MAX_RETRIES} attempts: ${e?.message ?? e}`);
+        // Some COPY failures leave partial rows in the table. Best-effort cleanup:
+        // delete any rows we may have written for this batch's ids before retry.
+        try {
+          const ids = docs.slice(start, end).map(d => d.id);
+          await sql.unsafe(`DELETE FROM ${T} WHERE id = ANY($1::text[])`, [ids]);
+          dlog(`cleaned ${ids.length} ids before retry`);
+        } catch (e2: any) {
+          dlog(`cleanup before retry failed (continuing): ${e2?.message ?? e2}`);
+        }
+      }
+    }
+    process.stdout.write(`  Progress: ${end}/${docs.length}\n`);
+  }
+  dlog(`all ${docs.length} rows COPY-loaded`);
 
   // Recreate indexes
   console.log(`  Recreating indexes...`);
@@ -423,9 +486,43 @@ Query: ${query}
 Ranked document IDs:`;
 }
 
+function buildPromptBrightLeetcode(query: string): string {
+  return `You have access to a search tool to find documents in a corpus of LeetCode problem statements. Each doc is a complete LeetCode problem with its title, description, examples, and constraints.
+
+CRITICAL — what "gold" looks like in this benchmark:
+For a LeetCode query, gold is OTHER LeetCode problem statements that share the same algorithmic pattern. Gold is a SIBLING PROBLEM, not the answer to the query. Two problems sharing the same algorithm (sliding window, monotonic stack, two-pointer, dynamic programming on intervals, BFS on graph, prefix sums, etc.) ARE good matches even when their problem scenarios are completely different (one is about elevation maps, the other about points on a line). Two problems sharing surface words (same data type, same operation names) but using different algorithms are NOT good matches.
+
+CRITICAL — don't search for the algorithm; search for the problem:
+You may already recognize the algorithmic pattern needed to solve the query (DP, BFS, two-pointer, etc.). Do NOT search for that algorithm name. Searching for "dynamic programming on subsets" or "monotonic stack" or "GCD slope calculation" returns implementation discussions and algorithm explanations — but those are NOT the corpus. The corpus has problem statements only. Instead, search the way another LeetCode problem would BE PHRASED: in terms of the input/output (arrays, strings, intervals, graphs) and the question being asked (count, maximum, find pattern, etc.).
+
+CRITICAL — don't try to solve and find the answer:
+Your job is NOT to figure out the solution and then find a doc with that solution. The corpus doesn't contain solutions. Your job is to find SIBLING PROBLEMS that would teach the same algorithmic pattern. Resist the urge to search for "how to implement X" or "solution to problem Y".
+
+Strategy:
+1. CALIBRATE: do 1-2 broad searches first using problem-statement language ("array of integers", "trap rainwater", "maximum subarray") and look at result IDs. Confirm you're seeing leetcode/leetcode_NNNN.txt entries (problem statements), not external docs.
+2. Decompose the query into 2-4 PROBLEM-PHRASING terms — what's the input shape, what's being asked, what's the constraint. Examples:
+   - Input shape: "array of integers", "string s", "binary tree", "list of intervals", "graph with N nodes"
+   - Question type: "find maximum / minimum", "count number of X", "return all valid Y", "rearrange so that"
+   - Constraint: "non-decreasing", "with target sum", "such that no two adjacent"
+3. Run 5-8 searches mixing input-shape, question-type, constraint phrasing. AVOID typing algorithm names from your training (no "sliding window", "monotonic queue", "two pointers", "binary search", etc.). Those phrases pull up tutorials and miss sibling problems.
+4. If a search returns mostly implementation/tutorial docs (non leetcode_NNNN ids), the search was too algorithmic — rephrase as problem-statement language.
+
+IMPORTANT about grep: grep is a HARD filter. Default empty.
+
+Ranking: highest priority for leetcode_NNNN.txt sibling problems whose stated input/output and question type closely match the query.
+
+After searching, return exactly 10 document IDs, most relevant first.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
+}
+
 export function buildPromptBright(query: string, domain: string): string {
   if (domain === "economics") return buildPromptBrightEconomics(query);
   if (domain === "aops" || domain === "theoremqa_questions") return buildPromptBrightMath(query);
   if (domain === "pony") return buildPromptBrightPony(query);
+  if (domain === "leetcode") return buildPromptBrightLeetcode(query);
   return buildPromptBrightDefault(query);
 }
