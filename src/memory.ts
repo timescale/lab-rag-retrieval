@@ -549,11 +549,49 @@ Query: ${query}
 Ranked document IDs:`;
 }
 
+function buildPromptBrightStackoverflow(query: string): string {
+  return `You have access to a search tool to find documents that help with the StackOverflow programming question below. The corpus is organized into subdirectories named after specific libraries/topics — e.g. "pytorch_torch_tensor_functions/", "python_data_model/", "polar_functions/", "Python_pandas_functions/", "react_hooks_components/", "spring_io/", "linux_man_1/", "DBMS_LOB_LIBCACHE/", etc. — each holding the API REFERENCE DOCUMENTATION for the underlying library/concept relevant to that topic.
+
+CRITICAL — what "gold" looks like in this benchmark:
+Gold is the OFFICIAL API REFERENCE for the underlying library function/feature that the question is fundamentally about, NOT a framework wrapper, NOT a tutorial, NOT a Stack Overflow answer. For a "PyTorch model in Flask web server bottleneck" question, gold is PyTorch tensor function reference docs (torch.load, model.to, etc.), NOT Celery worker setup or Flask deployment patterns. For a "Pydantic class with multiple inheritance" question, gold is the Python data model reference (\`__init__\`, \`__setattr__\`, MRO) — the underlying language feature — NOT Pydantic-specific helpers. For a "Polars list intersection" question, gold is the Polars Expression reference (a specific list method), NOT Polars dataframe tutorials.
+
+CRITICAL — don't chase framework keywords from your training:
+You probably know the APIs of popular libraries deeply (Celery worker_init, FastAPI dependency injection, Pydantic PrivateAttr, Polars map_elements, etc.). Do NOT search for those specific helper names from memory. They will pull tangentially-related framework chunks and miss the foundational API-reference docs that actually answer the question. Instead, identify the UNDERLYING LIBRARY/LANGUAGE FEATURE the question is fundamentally about and search by THAT. (Question about Pydantic field weirdness? Search "Python data model __setattr__ descriptor". Question about Polars list operation? Search "Polars expression list namespace functions".)
+
+CALIBRATION — do this before deep search:
+Run 1-2 broad searches naming the underlying LIBRARY + the specific API area ("PyTorch tensor functions GPU", "Polars expression list", "Python data model dunder"). Look at result IDs to confirm you're getting "<library_name>/...txt" documentation chunks. If your first results are tutorials/blog posts, your search is too solution-focused; rephrase toward "API reference [library] [feature]".
+
+Strategy:
+1. CALIBRATE: 1-2 broad library+feature searches; observe directory naming.
+2. Identify the FOUNDATIONAL library/feature the question is really about. Examples:
+   - PyTorch question → torch tensor / nn module reference
+   - Pydantic / dataclass question → Python data model / descriptor reference
+   - Polars / Pandas question → that library's Expression / DataFrame method reference
+   - React state question → React hooks reference
+   - Spring question → Spring IO / Boot reference
+   - Linux command question → linux man pages
+   - Oracle DB question → DBMS_LOB / LIBCACHE reference
+3. Search for each foundational item by name. Combine library + specific function/feature ("PyTorch torch.cuda model device").
+4. AVOID searching for: specific helper utilities you remember (Celery worker_init, FastAPI Depends, etc.), error messages, blog-style how-to phrases.
+
+IMPORTANT about grep: grep is a HARD filter. Default empty.
+
+Ranking: highest priority for API reference documentation chunks of the foundational library/feature; demote tutorial/wrapper chunks.
+
+After searching, return exactly 10 document IDs, most relevant first.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
+}
+
 export function buildPromptBright(query: string, domain: string): string {
   if (domain === "economics") return buildPromptBrightEconomics(query);
   if (domain === "aops" || domain === "theoremqa_questions") return buildPromptBrightMath(query);
   if (domain === "pony") return buildPromptBrightPony(query);
   if (domain === "leetcode") return buildPromptBrightLeetcode(query);
   if (domain === "robotics") return buildPromptBrightRobotics(query);
+  if (domain === "stackoverflow") return buildPromptBrightStackoverflow(query);
   return buildPromptBrightDefault(query);
 }

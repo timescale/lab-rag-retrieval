@@ -76,3 +76,4 @@
 {"timestamp":"2026-05-05T18:34:14.096Z","domain":"aops","ndcg10":0.3386,"retrievalRecall":0.5819,"rankingRecall":0.3838,"queries":111,"description":"aops opus max v3: leetcode-style stop-and-rephrase + calibration in math prompt"}
 {"timestamp":"2026-05-06T08:15:10.875Z","domain":"robotics","ndcg10":0.1626,"retrievalRecall":0.2177,"rankingRecall":0.1634,"queries":101,"description":"robotics opus max + specialized robotics prompt (foundational-tools reframe)"}
 {"timestamp":"2026-05-06T10:21:19.525Z","domain":"robotics","ndcg10":0.4583,"retrievalRecall":0.5274,"rankingRecall":0.4798,"queries":101,"description":"robotics opus max + specialized prompt, retry with 20min timeout"}
+{"timestamp":"2026-05-06T11:52:27.787Z","domain":"stackoverflow","ndcg10":0.4763,"retrievalRecall":0.6475,"rankingRecall":0.5359,"queries":117,"description":"stackoverflow opus max + specialized prompt (foundational-API-reference reframe)"}
