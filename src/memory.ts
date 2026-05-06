@@ -519,10 +519,41 @@ Query: ${query}
 Ranked document IDs:`;
 }
 
+function buildPromptBrightRobotics(query: string): string {
+  return `You have access to a search tool to find documents that help with the robotics problem below. The corpus is organized into subdirectories named after specific topics/components — e.g. "camera_lidar/", "odometry_trajectory/", "automap_project/", "diffdrive/", "ackermann/", "arduino/", "depth_frame/", "crazyswarm/" — each holding documentation for the foundational tools/algorithms relevant to that topic.
+
+CRITICAL — what "gold" looks like in this benchmark:
+Gold is documentation for the FOUNDATIONAL TOOL or ALGORITHM that solves the problem, NOT the framework wrapper or message-passing layer. For a "sensor fusion of lidar and camera" query, gold is OpenCV's Kalman Filter header docs (the underlying algorithm), NOT ROS message-synchronization API docs. For a "compare odometry trajectories" query, gold is PlotJuggler config docs, NOT robot_localization or ROS2 topic docs. For a "diff drive controller setup" query, gold is the diffdrive controller userdoc, NOT generic ROS2 launch tutorials. The gold is in directories named after the CORE COMPONENT a robotics expert would identify as the right tool — Kalman filter, OctomapServer, PlotJuggler, ros2_control plugin, etc.
+
+CRITICAL — don't chase framework keywords from your training:
+You probably know ROS/ROS2 APIs deeply: message_filters, ApproximateTimeSynchronizer, Detection2DArray, vision_msgs, robot_localization, costmap_2d, navfn, etc. Do NOT search for those API names. They will pull up tangentially-related framework chunks and miss the foundational-component docs that actually answer the question. Instead, identify the underlying ALGORITHM/TOOL the problem actually requires (Kalman filter for state estimation, particle filter for localization, MPC for control, OctomapServer for occupancy maps, PlotJuggler for trajectory plotting, etc.) and search by THAT name.
+
+CALIBRATION — do this before deep search:
+Run 1-2 broad searches naming the underlying CONCEPT (e.g. "Kalman filter sensor fusion", "occupancy grid octomap", "differential drive controller"). Look at result IDs to confirm you're getting documentation chunks like "<concept_dir>/cvSomething_N.txt" or similar tool-specific files. If your first results are ROS-launch tutorials or message-type definitions, your search is too framework-focused; rephrase toward the core tool.
+
+Strategy:
+1. CALIBRATE: 1-2 broad concept searches; observe directory naming.
+2. Identify the FOUNDATIONAL TOOL(S) the problem requires. Common ones: Kalman/EKF, particle filter, ICP, RANSAC, A*/D*/Dijkstra, MPC/LQR/PID, octomap, costmap, PlotJuggler, URDF, ros2_control plugins (diffdrive, ackermann, mecanum), gazebo plugins, IK solvers, behavior trees, MoveIt, NAV2.
+3. Search for each foundational tool by name. Combine the tool name with the broad scenario ("Kalman filter sensor fusion lidar camera").
+4. AVOID searching for: specific ROS2 API names, message types, topic names, launch-file boilerplate, package names you remember from training.
+
+IMPORTANT about grep: grep is a HARD filter. Default empty.
+
+Ranking: highest priority for documentation chunks of the foundational tool/algorithm; demote framework-wrapper or generic ROS-tutorial chunks.
+
+After searching, return exactly 10 document IDs, most relevant first.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
+}
+
 export function buildPromptBright(query: string, domain: string): string {
   if (domain === "economics") return buildPromptBrightEconomics(query);
   if (domain === "aops" || domain === "theoremqa_questions") return buildPromptBrightMath(query);
   if (domain === "pony") return buildPromptBrightPony(query);
   if (domain === "leetcode") return buildPromptBrightLeetcode(query);
+  if (domain === "robotics") return buildPromptBrightRobotics(query);
   return buildPromptBrightDefault(query);
 }

@@ -87,7 +87,7 @@ function mcpConfigFor(
 }
 
 const MCP_TOOLS = "mcp__recall__me_memory_search";
-const TIMEOUT_MS = 720_000;
+const TIMEOUT_MS = 1_200_000; // 20 min — opus max with dense specialized prompts can take a while before first tool call
 const MAX_RETRIES = 2;
 const JSON_SCHEMA = '{"type":"object","properties":{"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
 
