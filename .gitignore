@@ -14,4 +14,6 @@ data/dev.jsonl
 data/bright/
 data/embedding_cache/
 data/tag_cache/
+data/sketch_cache_robotics/
+data/sketch_cache_robotics_v2/
 results/eval-*.json
