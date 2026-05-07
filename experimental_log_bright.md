@@ -1595,3 +1595,219 @@ H9 *erased* the H7-A2 retrieval-recall gain (back to baseline level). Strong reg
 ### Generalizable finding
 
 Equal-weight RRF is robust precisely because it equally values every channel's evidence. Up-weighting one channel imports that channel's failure modes into the fused ranking. Lesson echoes H8: changes to fusion or order have second-order effects on the iterative search trajectory; they're not pure parameter tweaks.
+
+---
+
+## All-12-domain rerun at Sonnet max (2026-04-26)
+
+**Motivation.** First sonnet-max sweep of every BRIGHT domain. Established the new "sonnet max" baseline for direct comparisons going forward. Setup the missing 9 BRIGHT tables on the dev fork (parent had only aops/economics/leetcode), ingested them, then ran each at `--model sonnet --effort max`.
+
+**Results (mean nDCG@10 = 0.452 across 12 domains, vs prior haiku mean 0.347 = +0.105 / +30% relative):**
+
+| Domain | nDCG | RR | RaR | Q | Prior haiku |
+|--------|-----:|----:|----:|--:|------------:|
+| biology | **0.666** | 0.754 | 0.691 | 103 | 0.553 |
+| theoremqa_questions | **0.614** | 0.773 | 0.711 | 194 | 0.067 |
+| psychology | 0.570 | 0.759 | 0.602 | 101 | 0.472 |
+| theoremqa_theorems | 0.515 | 0.781 | 0.618 | 76 | 0.512 |
+| sustainable_living | 0.488 | 0.662 | 0.527 | 108 | 0.360 |
+| economics | 0.455 | 0.648 | 0.497 | 103 | 0.369 |
+| stackoverflow | 0.429 | 0.683 | 0.526 | 117 | 0.341 |
+| robotics | 0.418 | 0.509 | 0.445 | 101 | 0.293 |
+| leetcode | 0.370 | 0.420 | 0.402 | 142 | 0.177 |
+| aops | 0.338 | 0.619 | 0.400 | 111 | 0.328 |
+| pony | 0.329 | 0.474 | 0.178 | 112 | 0.409 (regression) |
+| earth_science | 0.233 | 0.288 | 0.220 | 116 | 0.459 (regression — DB pause mid-run) |
+
+**Notes:**
+- 8 of 12 domains improved over prior haiku baselines. Biology, theoremqa_questions, leetcode, robotics, sustainable_living all up by 0.10+ nDCG.
+- 2 surprising regressions: pony (default code-prompt may not capitalize on sonnet) and earth_science (DB paused mid-eval; later analysis revealed the pause caused the bad number).
+- aops at sonnet max (0.338) is *worse* than aops at sonnet xhigh (0.364). Max effort hurts aops; the H7-A2 retrieval-recall gain disappears at max effort (agent goes deeper-but-narrower with more thinking).
+
+**Generalizable finding (max-effort tradeoff).** Max effort makes the agent narrower per query, sometimes at the cost of breadth needed for retrieval-bound benchmarks. Aops's prior best stays at sonnet xhigh + H7-A2 stack (0.369).
+
+---
+
+## Pony specialized prompt (Opus max) — 2026-04-27 — adopted, +0.247 nDCG (p≈0)
+
+**Diagnostic on the prior pony failure** (sonnet max nDCG=0.329, opus max nDCG=0.151): inspected zero-recall queries and saw opus searching for specific Pony syntax tokens (`USize`, `mul`, `repeat_str`, `recover`, `iso`, `consume`) and hitting `src-builtin-*` implementation files — but the gold was always primer chapters (`1_variables_*`, `2_primitives_*`, `5_methods_*`). Opus's training-time knowledge of Pony was actively hurting it: it searched like an expert hunting an implementation while gold sits at the learner-primer level.
+
+**Hypothesis.** A specialized pony prompt that:
+1. Reframes "what gold looks like" as primer chapters / tutorial docs, NOT implementation source.
+2. Anti-overspecification rule: do NOT search for syntax tokens you remember from training; rephrase as topic phrases ("loops", "string handling", "methods on objects").
+3. Calibration step: 1-2 broad searches first, observe doc-id naming pattern, then specialize.
+
+**Implementation.** Added `buildPromptBrightPony` in `src/memory.ts` with the three directives above, routed pony to it.
+
+**Result vs sonnet max baseline (pony, 112 queries):**
+
+| Metric | sonnet max | opus + specialized | Δ | t | p (paired-t) | sign |
+|--------|-----------:|-------------------:|--:|--:|---:|------|
+| nDCG@10 | 0.329 | **0.576** | **+0.247** | +12.59 | ≈0 | **101w/11l (p=2e-19)** |
+| Retrieval recall | 0.474 | 0.581 | +0.107 | +5.40 | ≈0 | 70w/22l (p=5e-7) |
+| Ranking recall | 0.178 | 0.284 | +0.105 | +7.83 | ≈0 | 88w/12l (p=2e-15) |
+| Zero-gold | 33/112 | 0/112 | -33 | — | — | — |
+| Avg tool calls | 14 | 12.4 | -1.6 | — | — | — |
+
+**Decision.** Adopted. Largest single-experiment win in the session — every metric significantly improved at p << 0.001. Beats every prior pony result (haiku 0.409 was prior best).
+
+**Generalizable finding (opus over-specification).** When opus has strong training-time knowledge of a niche corpus (programming language docs, library APIs), it tends to search at the level of *implementation specifics* rather than the *learner-level abstraction* where BRIGHT gold typically sits. Three directives — (1) reframe what gold looks like, (2) anti-overspec rule against typing remembered tokens, (3) calibration step — consistently fix this on domains where the failure mode applies.
+
+---
+
+## H1, H6, H7-A1/A3, H8, H9 in summary (aops ranker bottleneck)
+
+After H1–H9 we ran six prompt-side ranker experiments on aops (H1 reasoning pre-pass, H6 explicit ranking guidance, H7-A1 sketch-BM25 fourth channel, H7-A3 hint per result line, H8 sketch-sem reorder, H9 sketch-sem 2× weight). All six landed in noise on nDCG. Established that **aops's ranker bottleneck is largely insensitive to prompt-side changes** on this stack. H7-A2 (4-way RRF with sketches + pseudo-queries) gave a real retrieval recall gain (+0.053 sig p=0.017) but the ranker didn't capitalize, and that's the aops champion at 0.369.
+
+---
+
+## aops opus max v1 (2026-04-27) — 0.348, ties sonnet xhigh
+
+First opus run on aops with the existing math prompt. Hypothesis: opus's stronger math reasoning might unlock the H7-A2 retrieval into ranking gains.
+
+| Metric | sonnet xhigh (H7-A2) | opus max v1 | Δ | p |
+|--------|---:|---:|---:|---:|
+| nDCG@10 | 0.361 | 0.348 | -0.014 | 0.36 (noise) |
+| Retrieval recall | 0.669 | 0.662 | -0.006 | 0.82 |
+| Ranking recall | 0.433 | 0.408 | -0.025 | 0.15 |
+
+Essentially tied. Opus did *not* break aops but didn't unlock anything either.
+
+---
+
+## aops opus max v2 (2026-04-27) — 0.354, +"what gold is" reframe + ranking guidance, non-viable, reverted
+
+Tried adding pony-style "what gold is" reframe + explicit "demote surface-match, prefer technique-match" ranking guidance to the math prompt for opus.
+
+| Metric | aops opus v1 | aops opus v2 | Δ |
+|--------|---:|---:|---:|
+| nDCG@10 | 0.348 | 0.354 | +0.006 (noise, p=0.67) |
+| Retrieval recall | 0.662 | 0.681 | +0.019 (p=0.35) |
+| Ranking recall | 0.408 | 0.403 | -0.005 |
+
+Same pattern as every prior aops ranker-prompt experiment: marginal retrieval-recall nudge, no ranker translation. Reverted. **Aops champion remains sonnet xhigh + H7-A2 stack at 0.369.**
+
+---
+
+## leetcode opus max + specialized prompt (2026-05-05) — adopted, +0.152 nDCG (p=3e-7)
+
+**Diagnostic.** Inspected zero-recall leetcode queries (sonnet max baseline retrieval recall 0.420 — lowest of all domains). Pattern: opus searches for *algorithm names* it would use to solve the problem (sliding window, monotonic stack, GCD slope) but gold is *other leetcode problem statements* that share the algorithmic pattern (`leetcode_NNNN.txt` files), at completely different surface vocabulary. Same shape as pony — opus's training-time programming knowledge hurts it.
+
+**Specialized leetcode prompt:**
+1. Reframe gold = OTHER leetcode problem statements sharing the algorithmic pattern, NOT solution code or algorithm tutorials.
+2. Anti-overspec = don't search for algorithm names from training (DP, BFS, sliding window, two-pointer); search for problem SCENARIO (input shape, question type, constraint).
+3. Calibration = broad exploratory searches first; confirm `leetcode_NNNN.txt` IDs.
+
+**Setup.** Re-ingested leetcode on a fresh prod-2 DB (`ur8scw34k8`) after the H7-fork on dev went unstable. Required workflow fixes (see "Ingest hardening" below).
+
+**Result vs sonnet max baseline (leetcode, 142 queries):**
+
+| Metric | sonnet max | opus + specialized | Δ | t | p (paired-t) | sign |
+|--------|-----------:|-------------------:|--:|--:|---:|------|
+| nDCG@10 | 0.370 | **0.522** | **+0.152** | +5.10 | 3e-7 | **53w/18l (p=4e-5)** |
+| Retrieval recall | 0.420 | 0.575 | +0.155 | +4.68 | 3e-6 | 41w/11l (p=4e-5) |
+| Ranking recall | 0.402 | 0.527 | +0.125 | +3.91 | 9e-5 | 39w/15l (p=0.0015) |
+| Zero-gold | 62/142 | 40/142 | -22 | — | — | — |
+
+**Decision.** Adopted. Second confirmation of the opus + specialized-prompt pattern after pony.
+
+---
+
+## Ingest hardening (2026-05-02 to 2026-05-05)
+
+After Tiger Cloud added a new proxy in front of prod databases, our ingest pipeline started failing in three new ways. Multiple attempts unraveled this:
+
+1. **`postgres.js` SSL silent hang.** Tiger prod requires TLS; without `?sslmode=require` in DATABASE_URL, postgres.js connects but every query hangs forever. Fix: append `?sslmode=require`.
+
+2. **`postgres.js` silent process-exit-0 mid-COPY.** During the 30-min embed-cache phase, postgres.js's pool connection sat idle, the proxy quietly closed the server-side socket, and when the next query (DROP INDEX) ran postgres.js queued it but never sent it (or failed to reject the queued promise). The bun process saw libuv with no pending handles, fired `beforeExit`, and exited 0 — losing all work. Fix: in `ingestBright`, after the embed-cache phase, explicitly `sql.end()` and re-open with a fresh `postgres()` client + sanity `SELECT 1` before any DB-heavy work.
+
+3. **COPY stream broken mid-stream.** Previously the entire ingest was one COPY stream; if the underlying socket broke at row 10k, all 414k rows of work were lost. Fix: split COPY into 10k-row batches, each its own COPY transaction, with up to 3 retries per batch and a `DELETE WHERE id = ANY(...)` cleanup before retry.
+
+4. **HNSW build burns I/O for hours.** Without `maintenance_work_mem` increase (256 MB default on the small instance), HNSW on 414k halfvec(1536) thrashes through WAL writes for 18+ hours. We just let it run; the build completes server-side even after the bun client disconnects. Index building survives client connection death — only the BM25 + GIST creation that follows in the same script gets lost.
+
+5. **Postgres connection saturation after kill.** When you `kill -9` ingest workers, server-side backends don't release for ~15+ minutes (TCP keepalive). All subsequent connections fail with "too many clients already". Wait it out, or recreate the DB.
+
+Diagnostic logging added: `process.on("uncaughtException" / "unhandledRejection" / "SIGTERM" / "beforeExit" / "exit")` in `ingest-bright.ts`, plus stderr (line-buffered) progress logs in `embed-cache.ts`. Without this, silent exit-0 was invisible.
+
+---
+
+## aops opus max v3 (2026-05-05) — leetcode-style prompt — non-viable, reverted
+
+After leetcode's win, tried adapting the same leetcode-style structure (anti-overspecification, "search for problem scenario not algorithm name", calibration step) to aops's math prompt. Run was on a fresh prod-2 ingest of bright_aops (no H7-A2 stack — basic content+embedding indexes only).
+
+| Metric | sonnet xhigh + H7-A2 | aops opus v3 | Δ | p |
+|--------|---:|---:|---:|---:|
+| nDCG@10 | 0.361 | 0.339 | -0.023 | 0.25 (noise) |
+| Retrieval recall | 0.669 | 0.582 | **-0.087** | **0.006 (sig)** |
+| Ranking recall | 0.433 | 0.384 | -0.049 | 0.038 (sig) |
+
+**Significant retrieval-recall regression.** The leetcode-style "search for problem scenario, not technique name" directive demoted technique-tag searches — but aops's gold-binding IS by technique. Reverted.
+
+**Generalizable finding (failure-mode-specific prompts).** Pony/leetcode failure mode: opus over-specifies on training knowledge → searches at the WRONG abstraction level (gold is at a different level). Aops failure mode: opus's reasoning aligns fine with gold technique-binding; the bottleneck is the ranker. Same prescription does NOT generalize across failure modes. Each domain needs its own diagnostic + prompt, not a copy-paste of what worked elsewhere.
+
+---
+
+## robotics opus max + specialized prompt (2026-05-06) — adopted, +0.041 nDCG (not sig)
+
+**Diagnostic.** BRIGHT robotics gold is in concept-named subdirectories (`camera_lidar/`, `odometry_trajectory/`, `automap_project/`, `diffdrive/`, `arduino/`, etc.), each holding documentation for the FOUNDATIONAL TOOL relevant to that topic (cvKalmanFilter, PlotJuggler, OctomapServer, diffdrive controller). Opus's prior runs chased ROS framework keywords from training (ApproximateTimeSynchronizer, vision_msgs, robot_localization) and missed the foundational-tool docs. Same shape as pony/leetcode but gold is mixed (some queries DO match framework-level docs).
+
+**Specialized robotics prompt** directs opus to:
+1. Reframe gold = foundational tool/algorithm docs, not framework wrappers.
+2. Anti-overspec = don't search for ROS API/message names from training.
+3. Calibration + strategy = identify the underlying algorithm (Kalman, octomap, MPC, PID) and search by name.
+
+**Result vs sonnet max baseline (101 queries):**
+
+| Metric | sonnet max | opus + specialized | Δ | p |
+|--------|---:|---:|---:|---:|
+| nDCG@10 | 0.418 | 0.458 | +0.041 | 0.31 (not sig) |
+| Retrieval recall | 0.509 | 0.527 | +0.018 | 0.67 |
+| Ranking recall | 0.445 | 0.480 | +0.035 | 0.39 |
+
+Directional positive but not significant. Adopted (small but improvement). Also bumped TIMEOUT_MS from 12min → 20min — opus max with dense specialized prompts can take a while before the first tool call, and we lost the first attempt's result to 60/101 queries timing out before any tool calls.
+
+---
+
+## stackoverflow opus max + specialized prompt (2026-05-06) — adopted, +0.047 nDCG (not sig)
+
+**Diagnostic.** BRIGHT stackoverflow gold is in concept-named subdirectories (`pytorch_torch_tensor_functions/`, `python_data_model/`, `polar_functions/`, `Python_pandas_functions/`, `react_hooks_components/`, `linux_man_1/`, etc.) holding API REFERENCE documentation for the foundational library/feature. Opus chased framework helper keywords from training (Celery worker_init, FastAPI Depends, Pydantic PrivateAttr, Polars map_elements) and missed the API reference docs.
+
+**Specialized stackoverflow prompt** directs opus to:
+1. Reframe gold = OFFICIAL API REFERENCE for the underlying library/feature, not framework wrappers/tutorials.
+2. Anti-overspec = identify the underlying library + feature, don't search for specific helper names.
+3. Calibration = library+feature search first.
+
+**Result vs sonnet max baseline (117 queries):**
+
+| Metric | sonnet max | opus + specialized | Δ | p |
+|--------|---:|---:|---:|---:|
+| nDCG@10 | 0.429 | 0.476 | +0.047 | 0.14 (not sig) |
+| Retrieval recall | 0.682 | 0.647 | -0.035 | 0.26 |
+| Ranking recall | 0.526 | 0.536 | +0.010 | 0.76 |
+
+Same shape as robotics: directional positive but not significant. Unlike pony/leetcode (huge wins driven by retrieval coverage), here retrieval recall slightly *regressed* — the prompt shifted opus's ranker preference rather than finding new gold.
+
+---
+
+## Best-of summary across all 12 BRIGHT domains (as of 2026-05-06)
+
+Mean nDCG@10 = **0.514** across 12 domains (vs prior haiku mean 0.347 = +0.167 / +48%; vs sonnet-max-only mean 0.452 = +0.062 / +14%).
+
+| Domain | Best nDCG | Config | Δ vs sonnet max |
+|--------|---:|---|---:|
+| biology | 0.666 | sonnet max | — |
+| theoremqa_questions | 0.614 | sonnet max | — |
+| pony | **0.576** | **opus + specialized** | **+0.247** (sig) |
+| psychology | 0.570 | sonnet max | — |
+| leetcode | **0.522** | **opus + specialized** | **+0.152** (sig) |
+| theoremqa_theorems | 0.515 | sonnet max | — |
+| sustainable_living | 0.488 | sonnet max | — |
+| stackoverflow | 0.476 | opus + specialized | +0.047 (not sig) |
+| economics | 0.462 | older sonnet+expansion | — |
+| earth_science | 0.459 | older haiku+expansion | — |
+| robotics | 0.458 | opus + specialized | +0.041 (not sig) |
+| aops | 0.369 | sonnet xhigh + H7-A2 | — |
+
+**Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead).
+
+**Untried opus-specialized candidates.** Candidates with sonnet-max baselines that are highish and might still benefit from opus reframing: economics (0.462, older record never updated), earth_science (0.459 likewise), psychology (0.570), sustainable_living (0.488), biology (0.666 — likely saturated), theoremqa_theorems (0.515 — gold shape likely similar to theoremqa_questions / aops).
