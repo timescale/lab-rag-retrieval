@@ -78,3 +78,4 @@
 {"timestamp":"2026-05-06T10:21:19.525Z","domain":"robotics","ndcg10":0.4583,"retrievalRecall":0.5274,"rankingRecall":0.4798,"queries":101,"description":"robotics opus max + specialized prompt, retry with 20min timeout"}
 {"timestamp":"2026-05-06T11:52:27.787Z","domain":"stackoverflow","ndcg10":0.4763,"retrievalRecall":0.6475,"rankingRecall":0.5359,"queries":117,"description":"stackoverflow opus max + specialized prompt (foundational-API-reference reframe)"}
 {"timestamp":"2026-05-07T18:30:47.333Z","domain":"robotics","ndcg10":0.4912,"retrievalRecall":0.5713,"rankingRecall":0.5008,"queries":101,"description":"robotics opus max + concept sketches (4-way RRF: content+sketch BM25 + content+sketch semantic)"}
+{"timestamp":"2026-05-07T19:48:47.518Z","domain":"robotics","ndcg10":0.4937,"retrievalRecall":0.5864,"rankingRecall":0.52,"queries":101,"description":"robotics opus max + sketches (with 11 errored docs recovered)"}
