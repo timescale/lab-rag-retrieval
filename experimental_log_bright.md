@@ -1789,9 +1789,35 @@ Same shape as robotics: directional positive but not significant. Unlike pony/le
 
 ---
 
-## Best-of summary across all 12 BRIGHT domains (as of 2026-05-06)
+## robotics opus + concept sketches H7-A2 generalization (2026-05-07) — adopted, retrieval recall +0.059 sig
 
-Mean nDCG@10 = **0.514** across 12 domains (vs prior haiku mean 0.347 = +0.167 / +48%; vs sonnet-max-only mean 0.452 = +0.062 / +14%).
+**Diagnostic.** After adopting opus + specialized prompt (+0.041 nDCG), 59% of robotics queries had at least one gold doc *never appearing* in any tool-call result set — a retrieval-side ceiling. `probe_robotics_raw.ts` ran raw user queries through BM25+semantic+RRF at top-100: retrieval recall capped at **0.335** (vs agent 0.527). Confirms a vocabulary mismatch ceiling: users describe symptoms ("post-process rviz images", "subscriber in hardware interface"), docs use canonical names (`image_proc rectify`, `TopicBasedSystem`). Even the best-case raw search misses ⅔ of gold.
+
+**H7-A2 generalization.** Same pattern that worked on aops: per-doc 80-120 word concept sketches that bridge BOTH vocabularies. Prompt directs Haiku to include (1) package/library name, (2) functional purpose in user-symptom phrasing, (3) canonical terms the chunk uses, (4) alternatives. Stored in `meta.sketch` + `sketch` column, embedded with text-embedding-3-small, indexed BM25 + HNSW. Generalized `src/mcp-server.ts` to detect `sketch_embedding` column at startup and add 2 RRF channels (sketch BM25 + sketch semantic) → 4-way fusion when present.
+
+**Tagging run.** ~32k robotics chunks tagged. ~3k errored on first pass (file-cache miss); reran the 3,060 errored docs and 3,045 recovered as legitimately-empty (Haiku judged the chunk had no robotics relevance — navigation/footers/headers). The remaining 15 still-erroring docs were fixed with explicit 3-attempt retry: 11 produced real sketches, 4 legitimate empty, 0 still erroring. Total nonempty sketches across corpus: ~28,640.
+
+**Result vs opus + specialized baseline (101 queries):**
+
+| Metric | opus+spec | sketch v1 (15 errored) | sketch v2 (all fixed) | Δ v2 vs base | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.458 | 0.491 | **0.494** | +0.035 | 27/23 | 0.672 |
+| Retrieval recall | 0.527 | 0.571 | **0.586** | **+0.059** | **32/16** | **0.029 (sig)** |
+| Ranking recall | 0.480 | 0.501 | **0.520** | +0.040 | 25/15 | 0.154 |
+
+Retrieval recall significant by sign test (32 queries up vs 16 down). nDCG and ranking directionally positive but not significant — gains are diluted because sketches surface NEW gold (retrieval-side win) but the agent's ranker doesn't always promote them to the top-10.
+
+**Pipeline cost.** ~6h tagging (32k chunks × Haiku via `claude -p`) + 1h embedding + indexes. Reusable: any domain with the same canonical-name ↔ user-symptom mismatch can use this exact recipe — `tag_<domain>_sketches.ts` + `build_<domain>_sketch_indexes.ts`.
+
+**Generalizable pattern.** H7-A2 (originally aops-specific) generalizes cleanly. Two prerequisites: (1) raw-query retrieval ceiling proves the failure is corpus-side vocabulary, not agent-side reasoning; (2) a clear axis of mismatch between query and doc vocab. Robotics fit both. Next candidates worth probing: stackoverflow (raw retrieval baseline unknown) and earth_science (where the pre-existing 0.459 baseline was on older haiku — could revisit).
+
+**Files.** `tag_robotics_sketches.ts`, `build_robotics_sketch_indexes.ts`, `probe_robotics_raw.ts`, `fix_robotics_errored.ts`. Generalized: `src/mcp-server.ts` (HAS_SKETCH startup detection, 4-way RRF when present).
+
+---
+
+## Best-of summary across all 12 BRIGHT domains (as of 2026-05-07)
+
+Mean nDCG@10 = **0.517** across 12 domains (vs prior haiku mean 0.347 = +0.170 / +49%; vs sonnet-max-only mean 0.452 = +0.065 / +14%).
 
 | Domain | Best nDCG | Config | Δ vs sonnet max |
 |--------|---:|---|---:|
@@ -1801,13 +1827,15 @@ Mean nDCG@10 = **0.514** across 12 domains (vs prior haiku mean 0.347 = +0.167 /
 | psychology | 0.570 | sonnet max | — |
 | leetcode | **0.522** | **opus + specialized** | **+0.152** (sig) |
 | theoremqa_theorems | 0.515 | sonnet max | — |
+| robotics | **0.494** | **opus + specialized + H7-A2 sketches** | **+0.076** (retrieval-recall sig) |
 | sustainable_living | 0.488 | sonnet max | — |
 | stackoverflow | 0.476 | opus + specialized | +0.047 (not sig) |
 | economics | 0.462 | older sonnet+expansion | — |
 | earth_science | 0.459 | older haiku+expansion | — |
-| robotics | 0.458 | opus + specialized | +0.041 (not sig) |
 | aops | 0.369 | sonnet xhigh + H7-A2 | — |
 
-**Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead).
+**Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead). H7-A2 sketches stack on top of agent-side wins where the corpus has a vocabulary mismatch between query and doc (aops, robotics so far).
 
 **Untried opus-specialized candidates.** Candidates with sonnet-max baselines that are highish and might still benefit from opus reframing: economics (0.462, older record never updated), earth_science (0.459 likewise), psychology (0.570), sustainable_living (0.488), biology (0.666 — likely saturated), theoremqa_theorems (0.515 — gold shape likely similar to theoremqa_questions / aops).
+
+**Untried H7-A2 sketch candidates.** Domains where a raw-query retrieval probe might reveal a vocabulary ceiling: stackoverflow (canonical API names ↔ user-symptom code questions), earth_science, sustainable_living. The recipe is now plug-and-play — `tag_<dom>_sketches.ts` + `build_<dom>_sketch_indexes.ts` + the generalized 4-way RRF in `mcp-server.ts`.
