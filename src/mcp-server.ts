@@ -12,6 +12,20 @@ const ACTIVE_TABLE = process.env.MCP_TABLE ?? TABLE_NAME;
 
 const sql = postgres(process.env.DATABASE_URL!, { onnotice: () => {} });
 
+// Detect optional sketch column at startup. If the active table has it
+// (e.g. bright_robotics with H7-A2-style concept sketches), use it as
+// extra RRF channels (sketch BM25 + sketch semantic). Otherwise stay
+// at the simpler 2-way RRF that other domains expect.
+const HAS_SKETCH = await (async () => {
+  const r = await sql.unsafe(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_name = $1 AND column_name = 'sketch_embedding'`,
+    [ACTIVE_TABLE],
+  );
+  return r.length > 0;
+})();
+process.stderr.write(`[mcp-server] table=${ACTIVE_TABLE} sketch=${HAS_SKETCH}\n`);
+
 const server = new McpServer({
   name: "recall",
   version: "1.0.0",
@@ -58,19 +72,34 @@ server.tool(
 
     if (hasSemantic || hasFulltext) {
       const bm25Results: Array<{ id: string }> = [];
+      const sketchBm25Results: Array<{ id: string }> = [];
       const semanticResults: Array<{ id: string }> = [];
+      const sketchSemResults: Array<{ id: string }> = [];
 
       if (hasFulltext) {
         const tBm25 = performance.now();
-        const bm25 = await sql.unsafe<Array<{ id: string }>>(
-          `SELECT id FROM ${ACTIVE_TABLE}
-           ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
-           ORDER BY content <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_content_bm25_idx')
-           LIMIT $${paramIdx + 1}`,
-          [...filterValues, params.fulltext, candidateLimit] as any[],
-        );
+        const queries = [
+          sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             ${filters.length > 0 ? "WHERE " + filters.join(" AND ") : ""}
+             ORDER BY content <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_content_bm25_idx')
+             LIMIT $${paramIdx + 1}`,
+            [...filterValues, params.fulltext, candidateLimit] as any[],
+          ),
+        ];
+        if (HAS_SKETCH) {
+          queries.push(sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             ${filters.length > 0 ? "WHERE " + filters.join(" AND ") + " AND sketch IS NOT NULL" : "WHERE sketch IS NOT NULL"}
+             ORDER BY sketch <@> to_bm25query($${paramIdx}, '${ACTIVE_TABLE}_sketch_bm25_idx')
+             LIMIT $${paramIdx + 1}`,
+            [...filterValues, params.fulltext, candidateLimit] as any[],
+          ));
+        }
+        const r = await Promise.all(queries);
         timings.bm25_ms = Math.round(performance.now() - tBm25);
-        bm25Results.push(...bm25);
+        bm25Results.push(...r[0]!);
+        if (HAS_SKETCH && r[1]) sketchBm25Results.push(...r[1]);
       }
 
       if (hasSemantic) {
@@ -89,24 +118,44 @@ server.tool(
           semParamIdx++;
         }
         const semFilterClause = semFilters.length > 0 ? " AND " + semFilters.join(" AND ") : "";
-        const sem = await sql.unsafe<Array<{ id: string }>>(
-          `SELECT id FROM ${ACTIVE_TABLE}
-           WHERE embedding IS NOT NULL
-             AND (embedding <=> $1::halfvec) < 1.0${semFilterClause}
-           ORDER BY (embedding <=> $1::halfvec) ASC, created_at DESC
-           LIMIT $2`,
-          [vec, candidateLimit, ...semFilterValues] as any[],
-        );
+        const semQueries = [
+          sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             WHERE embedding IS NOT NULL
+               AND (embedding <=> $1::halfvec) < 1.0${semFilterClause}
+             ORDER BY (embedding <=> $1::halfvec) ASC, created_at DESC
+             LIMIT $2`,
+            [vec, candidateLimit, ...semFilterValues] as any[],
+          ),
+        ];
+        if (HAS_SKETCH) {
+          semQueries.push(sql.unsafe<Array<{ id: string }>>(
+            `SELECT id FROM ${ACTIVE_TABLE}
+             WHERE sketch_embedding IS NOT NULL
+               AND (sketch_embedding <=> $1::halfvec) < 1.0${semFilterClause}
+             ORDER BY (sketch_embedding <=> $1::halfvec) ASC, created_at DESC
+             LIMIT $2`,
+            [vec, candidateLimit, ...semFilterValues] as any[],
+          ));
+        }
+        const semR = await Promise.all(semQueries);
         timings.semantic_ms = Math.round(performance.now() - tSem);
-        semanticResults.push(...sem);
+        semanticResults.push(...semR[0]!);
+        if (HAS_SKETCH && semR[1]) sketchSemResults.push(...semR[1]);
       }
 
-      // RRF fusion
+      // RRF fusion (4-way when sketch channels are present)
       const scores = new Map<string, number>();
       bm25Results.forEach((r, i) => {
         scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
       });
+      sketchBm25Results.forEach((r, i) => {
+        scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
+      });
       semanticResults.forEach((r, i) => {
+        scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
+      });
+      sketchSemResults.forEach((r, i) => {
         scores.set(r.id, (scores.get(r.id) ?? 0) + 1.0 / (RRF_K + i + 1));
       });
 
