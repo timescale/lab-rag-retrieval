@@ -59,14 +59,14 @@ server.tool(
   "me_memory_search",
   `Search memory. Modes: semantic, fulltext, grep. Usually combine semantic + fulltext. WARNING: grep is a HARD AND filter that excludes any document not matching the regex — overly-specific grep patterns silently filter out correct documents. Default to leaving grep empty. Use treeMatch to filter by source label (lquery pattern). Use techniquesAny / categoryAny to filter by mathematical concept (results have "meta" with techniques + category). The corpus includes pre-computed technique tags on the useful sources (aops / math_test / math_train / theoremqa); aqua/camel/gsm have no meta.`,
   {
-    semantic: z.string().nullable().describe("Natural language query for semantic/meaning search"),
-    fulltext: z.string().nullable().describe("Keywords/phrases for BM25 exact matching"),
-    grep: z.string().nullable().describe("Regex pattern (case-insensitive). HARD AND filter on all other modes — use only for highly distinctive literal terms you KNOW must appear verbatim. Leave empty when unsure."),
-    treeMatch: z.string().nullable().describe("ltree lquery pattern to restrict results by source label (e.g. 'aops|math_train|math_test|theoremqa')."),
-    techniquesAny: z.array(z.string()).nullable().describe(`Filter: keep only docs whose meta.techniques array overlaps with any of these tags. Only the useful sources have tags; aqua/camel/gsm rows return nothing if this filter is used. Canonical technique names (lowercase_with_underscores): ${TECHNIQUES_LIST}.`),
-    categoryAny: z.array(z.string()).nullable().describe(`Filter: keep only docs whose meta.category is one of these. Only the useful sources have meta; aqua/camel/gsm rows return nothing if this filter is used. Categories: ${CATEGORIES_LIST}.`),
-    candidateLimit: z.number().int().min(0).max(1000).describe("Candidates per search mode before RRF fusion (0 = default 30)"),
-    limit: z.number().int().min(0).max(1000).describe("Maximum results (0 = default 10)"),
+    semantic: z.string().nullable().optional().describe("Natural language query for semantic/meaning search"),
+    fulltext: z.string().nullable().optional().describe("Keywords/phrases for BM25 exact matching"),
+    grep: z.string().nullable().optional().describe("Regex pattern (case-insensitive). HARD AND filter on all other modes — use only for highly distinctive literal terms you KNOW must appear verbatim. Leave empty when unsure."),
+    treeMatch: z.string().nullable().optional().describe("ltree lquery pattern to restrict results by source label (e.g. 'aops|math_train|math_test|theoremqa')."),
+    techniquesAny: z.array(z.string()).nullable().optional().describe(`Filter: keep only docs whose meta.techniques array overlaps with any of these tags. Only the useful sources have tags; aqua/camel/gsm rows return nothing if this filter is used. Canonical technique names (lowercase_with_underscores): ${TECHNIQUES_LIST}.`),
+    categoryAny: z.array(z.string()).nullable().optional().describe(`Filter: keep only docs whose meta.category is one of these. Only the useful sources have meta; aqua/camel/gsm rows return nothing if this filter is used. Categories: ${CATEGORIES_LIST}.`),
+    candidateLimit: z.number().int().min(0).max(1000).optional().describe("Candidates per search mode before RRF fusion (0 = default 30)"),
+    limit: z.number().int().min(0).max(1000).optional().describe("Maximum results (0 = default 10)"),
   },
   async (params) => {
     const t0 = performance.now();

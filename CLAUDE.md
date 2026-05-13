@@ -29,6 +29,11 @@ notes in `experimental_log_bright.md`; upcoming hypotheses in
   - HNSW indexes: `embedding` (content), `sketch_embedding`
   - MCP server queries 4-way RRF: content BM25 + search_content BM25 +
     content semantic + sketch semantic
+  - **bright_robotics also has H7-A2 sketches** (from 2026-05-13):
+    `sketch` column populated from `meta.sketch_v2->>'sketch'` (sonnet,
+    14,203 nonempty). v1 sketches preserved in `meta.sketch` for revert.
+    BM25 + HNSW indexes on sketch/sketch_embedding. MCP server uses 4-way
+    RRF when `sketch_embedding` column exists (auto-detected at startup).
 - **Parent fork**: `jdyfwo1bxu` (name: `bright-eval`) — pre-H7 baseline.
   Receives no writes; revert target if H7 is later disowned. Has:
   - All 12 BRIGHT domain tables

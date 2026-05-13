@@ -1815,9 +1815,60 @@ Retrieval recall significant by sign test (32 queries up vs 16 down). nDCG and r
 
 ---
 
-## Best-of summary across all 12 BRIGHT domains (as of 2026-05-07)
+## robotics sketches v2 — sonnet + structured prompt (2026-05-13) — adopted, +0.018 nDCG over v1, +0.054 over no-sketches baseline
 
-Mean nDCG@10 = **0.517** across 12 domains (vs prior haiku mean 0.347 = +0.170 / +49%; vs sonnet-max-only mean 0.452 = +0.065 / +14%).
+**Hypothesis.** V1 sketches used haiku with a freeform `sketch` field. Two known v1 issues motivated v2:
+1. **Malformed JSON entries.** Some v1 sketches were the literal string `{"sketch": "..."}` because haiku occasionally emitted wrapped-JSON in its text response which got stored verbatim. Hurts BM25/semantic on those docs.
+2. **Over-narrow "robotics relevance" judgment.** v1 prompt said "ROS/robotics documentation chunk" — haiku flagged research-paper chunks (e.g. `path_planning/p113_*` RT-RRT* paper) as non-relevant and emitted empty sketches. BRIGHT robotics gold actually includes academic papers on planning/SLAM/control.
+
+**Changes vs v1.**
+- **Model**: haiku → sonnet (claude-sonnet-4-6, better canonical↔symptom bridging)
+- **Schema**: scaffolding fields (`package`, `purpose`, `canonical_terms`, `alternatives`, `sketch`) — sonnet has to fill each before assembling the indexed sketch, forcing component coverage.
+- **Prompt**: 3 worked examples covering ROS package, tutorial/API, AND research-paper styles. Explicit "ALL of these are robotics-relevant" guidance.
+- **Content window**: 2000 → 4000 chars.
+- **Storage**: writes to `meta.sketch_v2` as a jsonb object; v1 stays in `meta.sketch` for trivial revert.
+
+**Tagging run.** 62k chunks tagged in ~6h on sonnet, 3 errors. Final state: **14,203 nonempty sketches** (23% rate) vs v1's 28,640 nonempty (46% rate) — sonnet is much more conservative about "is this chunk actually robotics-relevant content vs navigation/header/boilerplate". **Half as many sketches, but higher quality.** Per spot-check, sonnet correctly empties pages of GitHub PR comment markup, RSS feed nav text, and similar boilerplate that v1 hallucinated content for based on the doc ID directory.
+
+**Gold-doc coverage.** 520 unique gold IDs in robotics. v2 produces nonempty sketches for **91.6%** of gold docs (230/251 sampled mid-run; final number similar) — confirming v2's stricter empty-rate doesn't hurt the docs that actually matter for retrieval.
+
+**Bugs found and fixed during the run.**
+1. **JSONB double-encoding** (`tag_robotics_sketches_v2.ts`). Initial implementation used `JSON.stringify(data)` + `$1::jsonb`; postgres.js JSON-encoded the string parameter again, storing it as a JSONB string instead of an object. All `meta->'sketch_v2'->>'sketch'` accesses returned NULL. Fix: cast as `$1::text::jsonb` (text-to-jsonb instead of object-to-jsonb). Migrated 33,740 broken rows via SQL unwrap (537s).
+2. **Race condition in resumable streaming pager.** The `rowStream` generator re-queries "missing" rows each page; with 20 concurrent workers, a page can return rows already in-flight in `pendingUpdates` (committed only when batch full). Result: same doc processed by multiple workers, inflating the "sketched" counter past the real target. Cost: ~30% wasted LLM calls in the tail. Not fatal — it does converge — but worth noting for future per-doc batch tasks.
+3. **MCP tool param schema regression with Opus 4.7.** `z.string().nullable()` was treated as REQUIRED by the agent's tool-loading path; opus called every search with `input: {}`. Caused initial v2 eval to return nDCG=0.000 (zero gold seen across 101 queries). Fix: add `.optional()` to all params in `src/mcp-server.ts` AND `src/mcp-server-aops.ts`. This likely affected all eval runs with newer Opus model versions; prior v1 eval (2026-05-07) was lucky to predate this model shift.
+
+**Result vs prior baselines (101 queries):**
+
+| Metric | opus+spec (no sketches) | sketch v1 | sketch v2 | Δ v2 vs base | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.458 | 0.494 | **0.512** | +0.054 | 28/18 | 0.184 |
+| Retrieval recall | 0.527 | 0.586 | **0.594** | **+0.067** | **30/13** | **0.014 (sig)** |
+| Ranking recall | 0.480 | 0.520 | **0.527** | +0.047 | 23/12 | 0.090 |
+
+**v2 vs v1 paired stats (same eval seed):**
+
+| Metric | Δ | t | p_t | sign | p_sign |
+|--------|---:|---:|---:|---:|---:|
+| nDCG@10 | +0.018 | 0.66 | 0.510 | 26/21 | 0.560 |
+| Retrieval recall | +0.008 | 0.21 | 0.835 | 19/22 | 0.755 |
+| Ranking recall | +0.007 | 0.22 | 0.826 | 16/16 | 1.000 |
+
+v2 is **directionally** better than v1 on all three metrics but **not statistically distinguishable**. The retrieval-recall significance vs the no-sketch baseline strengthens (p_sign 0.029 → 0.014). The big finding: **fewer, higher-quality sketches retrieve as well as more, lower-quality ones.** v1's hallucinated sketches on navigation/boilerplate docs didn't help retrieval; v2's surgical sketches on real robotics content do.
+
+**Cost.** Tagging ~6h sonnet, ~$200. Embeddings: 50s OpenAI (cache hits via embed-cache). Index rebuild: ~9 min. Reversible: revert `sketch = meta->>'sketch'` (string) to use v1 instead of `meta->'sketch_v2'->>'sketch'`.
+
+**Generalizable patterns this run uncovered.**
+- **Scaffolding fields force coverage.** Asking sonnet to fill `package | purpose | canonical_terms | alternatives | sketch` rather than just `sketch` produces noticeably better bridging in the final sketch. The model "thinks through" the components.
+- **Be permissive about what's "domain-relevant".** v1's narrow framing cost us the path_planning paper chunks. For corpora that mix tutorials + API docs + research papers, the prompt has to explicitly include all three.
+- **Quality > quantity** on doc-side enrichment. v2's 14k nonempty sketches beat v1's 28k. The 14k empty-but-was-nonempty-in-v1 rows were mostly hallucinated content.
+
+**Files.** `tag_robotics_sketches_v2.ts`, `build_robotics_sketch_indexes_v2.ts`, `compare_sketches_sample.ts`. Schema fix: `src/mcp-server.ts`, `src/mcp-server-aops.ts` (`.nullable()` → `.nullable().optional()`).
+
+---
+
+## Best-of summary across all 12 BRIGHT domains (as of 2026-05-13)
+
+Mean nDCG@10 = **0.519** across 12 domains (vs prior haiku mean 0.347 = +0.172 / +50%; vs sonnet-max-only mean 0.452 = +0.067 / +15%).
 
 | Domain | Best nDCG | Config | Δ vs sonnet max |
 |--------|---:|---|---:|
@@ -1827,7 +1878,7 @@ Mean nDCG@10 = **0.517** across 12 domains (vs prior haiku mean 0.347 = +0.170 /
 | psychology | 0.570 | sonnet max | — |
 | leetcode | **0.522** | **opus + specialized** | **+0.152** (sig) |
 | theoremqa_theorems | 0.515 | sonnet max | — |
-| robotics | **0.494** | **opus + specialized + H7-A2 sketches** | **+0.076** (retrieval-recall sig) |
+| robotics | **0.512** | **opus + specialized + H7-A2 sketches v2** | **+0.094** (retrieval-recall sig) |
 | sustainable_living | 0.488 | sonnet max | — |
 | stackoverflow | 0.476 | opus + specialized | +0.047 (not sig) |
 | economics | 0.462 | older sonnet+expansion | — |

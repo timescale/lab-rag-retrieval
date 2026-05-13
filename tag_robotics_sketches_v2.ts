@@ -143,7 +143,7 @@ async function main() {
     await Promise.all(pendingUpdates.map(({ id, data }) =>
       sql.unsafe(
         `UPDATE bright_robotics
-         SET meta = coalesce(meta, '{}'::jsonb) || jsonb_build_object('sketch_v2', $1::jsonb)
+         SET meta = coalesce(meta, '{}'::jsonb) || jsonb_build_object('sketch_v2', $1::text::jsonb)
          WHERE id = $2`,
         [JSON.stringify(data), id],
       ),
