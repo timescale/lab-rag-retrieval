@@ -89,3 +89,4 @@
 {"timestamp":"2026-05-14T15:04:16.432Z","domain":"psychology","ndcg10":0.2693,"retrievalRecall":0.3183,"rankingRecall":0.2642,"queries":101,"description":"psychology opus max + specialized prompt (Wikipedia-concept reframe)"}
 {"timestamp":"2026-05-14T19:06:49.303Z","domain":"earth_science","ndcg10":0.5511,"retrievalRecall":0.6393,"rankingRecall":0.5568,"queries":116,"description":"earth_science opus max + specialized prompt (Wikipedia-concept reframe, clean)"}
 {"timestamp":"2026-05-14T19:31:00.074Z","domain":"psychology","ndcg10":0.6537,"retrievalRecall":0.7305,"rankingRecall":0.6361,"queries":101,"description":"psychology opus max + specialized prompt (Wikipedia-concept reframe, clean)"}
+{"timestamp":"2026-05-14T21:11:48.231Z","domain":"biology","ndcg10":0.8027,"retrievalRecall":0.8247,"rankingRecall":0.8308,"queries":103,"description":"biology opus max + Wikipedia-concept prompt"}

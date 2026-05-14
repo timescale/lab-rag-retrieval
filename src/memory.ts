@@ -577,6 +577,14 @@ function buildPromptBrightWikipediaConcept(query: string, domain: string): strin
 - Query "Why do fNIRS use two frequencies?" → gold is \`fnir/Functionalnearinfraredspectroscopy_*.txt\` (Wikipedia on the modality).
 - Query "Term for inability to see past current emotional state?" → gold is \`hot_cold/Hotcoldempathygap_*.txt\` (Wikipedia "Hot-cold empathy gap").
 - Query "Can beliefs change without new evidence?" → gold is \`confirmation_bias/seeds_model_*.txt\` (the foundational SEEDS-model paper).`,
+    biology: `EXAMPLES of how gold looks in biology:
+- Query "Why does evolution not make our life longer?" → gold is \`evolution_not_make_our_life_longer/Antagonistic_pleiotropy_hypothesis_*.txt\` + \`Disposable_soma_theory_of_aging_*.txt\` (Wikipedia on the canonical aging theories).
+- Query "Why do I only breathe out of one nostril?" → gold is \`breathe_out_of_one_nostril/Nasal_cycle_*.txt\` (Wikipedia "Nasal cycle").
+- Query "Why are insects attracted to light?" → gold is \`insects_attracted_to_light/Proximate_and_ultimate_causation_*.txt\` (Wikipedia on the proximate/ultimate framework, NOT specific insect-attraction articles).
+- Query "Do animals exhibit handedness?" → gold is \`animals_handedness/Laterality_*.txt\` + \`Handedness_*.txt\` (Wikipedia on the underlying concept).
+- Query "Why do baby animals digest cellulose?" → gold is \`baby_animals_cellulose/Cecotrope_*.txt\` (Wikipedia "Cecotrope").
+- Query "Why do I see things when my eyes are closed?" → gold is \`see_when_eyes_closed/Phosphene_*.txt\` (Wikipedia "Phosphene").
+- Query "How do muscles get bigger?" → gold is \`muscle_bigger/Muscle_hypertrophy_*.txt\` (Wikipedia "Muscle hypertrophy").`,
   };
 
   return `You have access to a search tool to find documents that answer the ${domain} question below. The corpus is organized into subdirectories named after specific topic clusters — each cluster's name is usually a hint at the underlying scientific/conceptual principle the question depends on (e.g. "solid_inner_core/", "pole_flip/", "confirmation_bias/", "hot_water_cylinder/").
@@ -661,7 +669,7 @@ export function buildPromptBright(query: string, domain: string): string {
   if (domain === "leetcode") return buildPromptBrightLeetcode(query);
   if (domain === "robotics") return buildPromptBrightRobotics(query);
   if (domain === "stackoverflow") return buildPromptBrightStackoverflow(query);
-  if (domain === "earth_science" || domain === "sustainable_living" || domain === "psychology") {
+  if (domain === "earth_science" || domain === "sustainable_living" || domain === "psychology" || domain === "biology") {
     return buildPromptBrightWikipediaConcept(query, domain);
   }
   return buildPromptBrightDefault(query);

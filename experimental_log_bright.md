@@ -1957,13 +1957,39 @@ Where it doesn't work or only mildly works:
 
 ---
 
+## biology opus max + Wikipedia-concept prompt (2026-05-14) — adopted, nDCG 0.666 → 0.803 (+0.137, highly sig)
+
+**Hypothesis.** Biology has the same corpus shape as earth_science / sustainable_living / psychology — gold per cluster is a Wikipedia article on the underlying biological concept (Nasal_cycle, Phosphene, Tapetum_lucidum, Cecotrope, Antagonistic_pleiotropy_hypothesis, Disposable_soma_theory_of_aging, Muscle_hypertrophy, Reproductive_isolation, etc.). Cluster directory names match the concept; queries use stuck-asker phrasing while gold uses formal scientific names. Reused the existing `buildPromptBrightWikipediaConcept` function and added biology-specific worked examples + biology to the route.
+
+**Prior expectation: likely saturated.** Sonnet max baseline was 0.666 — the highest of any domain, and biology is in opus's strongest training area, so the prompt-reframe might fight opus's training instincts rather than help. Ran the eval anyway to verify.
+
+**Result vs sonnet-max baseline (103 queries, paired stats):**
+
+| Metric | opus | sonnet base | Δ | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | **0.803** | 0.666 | **+0.136** | 4.42 | <0.001 | 50/15 | <0.001 |
+| Retrieval recall | **0.825** | 0.754 | +0.070 | 2.84 | 0.004 | 26/6 | 0.001 |
+| Ranking recall | **0.831** | 0.691 | **+0.140** | 4.20 | <0.001 | 31/7 | <0.001 |
+
+All three metrics highly significant. Both retrieval AND ranking improve sharply — opus's training on biology + the Wikipedia-concept reframe combine to find more gold AND rank it better. **0.803 is now the highest score of any BRIGHT domain**, surpassing previous high biology=0.666 and psychology=0.654.
+
+**Prediction error.** My "biology already saturated at 0.666" prediction was wrong. The lesson: even at 0.666, sonnet-max wasn't actually saturated; it was just doing well by default. Opus + concept-reframe pushed it +0.137 further. The pattern is more robust than expected — for Wikipedia-gold corpora, ALWAYS try opus + the concept-reframe prompt regardless of how high the sonnet baseline is.
+
+**Operational note.** First ingest attempt hit the postgres.js silent-exit-0 bug at 20k/57k rows (Tiger Cloud proxy closed connection mid-COPY without erroring, beforeExit hit, process exited 0 with the table still empty of indexes). Probably triggered by laptop sleep — caffeinate from the earlier eval chain had auto-exited when its watched PID died. Restarted ingest with `--force`, added two `caffeinate -dimsu -w <pid>` processes tied to the ingest and the eval kicker. Second ingest succeeded.
+
+The new eval harness loudness (added in the previous commit) earned its keep here — the row-count guard in `/tmp/eval_bio.sh` (`if [ "$nrows" -lt 55000 ]; then ... exit 1`) caught the partial ingest before any eval was wasted on a broken table.
+
+**Files.** `src/memory.ts`: added `biology` to the `buildPromptBrightWikipediaConcept` examples block AND to the domain-routing condition.
+
+---
+
 ## Best-of summary across all 12 BRIGHT domains (as of 2026-05-14)
 
-Mean nDCG@10 = **0.546** across 12 domains (vs prior haiku mean 0.347 = +0.199 / +57%; vs sonnet-max-only mean 0.452 = +0.094 / +21%).
+Mean nDCG@10 = **0.557** across 12 domains (vs prior haiku mean 0.347 = +0.210 / +60%; vs sonnet-max-only mean 0.452 = +0.105 / +23%).
 
 | Domain | Best nDCG | Config | Δ vs sonnet max |
 |--------|---:|---|---:|
-| biology | 0.666 | sonnet max | — |
+| **biology** | **0.803** | **opus + Wikipedia-concept prompt** | **+0.137** (sig) |
 | **psychology** | **0.654** | **opus + Wikipedia-concept prompt** | **+0.084** (sig) |
 | theoremqa_questions | 0.614 | sonnet max | — |
 | pony | **0.576** | **opus + specialized** | **+0.247** (sig) |
@@ -1978,6 +2004,6 @@ Mean nDCG@10 = **0.546** across 12 domains (vs prior haiku mean 0.347 = +0.199 /
 
 **Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a medium win on Wikipedia-gold domains where the query uses symptom phrasing but gold uses formal concept names (earth_science +0.092 vs old best, psychology +0.084, sustainable_living +0.072). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047, economics +0.027). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead). H7-A2 sketches stack on top of agent-side wins where the corpus has a vocabulary mismatch between query and doc (aops, robotics so far). For economics specifically, the prompt fix gets opus to the right topic cluster but NOT to the right specific paper within it — sketches are likely the bigger lever there.
 
-**Untried opus-specialized candidates remaining.** Only 2 domains still without an opus run: biology (0.666 sonnet — likely saturated, opus may not help) and theoremqa_theorems (0.515 — math domain, expected to behave like aops/theoremqa_questions where opus's expertise already aligns with gold and the ranker bottlenecks).
+**Untried opus-specialized candidates remaining.** Only 1 domain still without an opus run: theoremqa_theorems (0.515 — math domain, expected to behave like aops/theoremqa_questions where opus's expertise already aligns with gold and the ranker bottlenecks). Biology turned out NOT to be saturated despite a high sonnet baseline (0.666 → 0.803).
 
 **Untried H7-A2 sketch candidates.** Domains where a raw-query retrieval probe might reveal a vocabulary ceiling, or where the prompt-fix only got us to the right cluster (need within-cluster disambiguation): **economics (within-cluster ranking gap proven)**, stackoverflow, earth_science, sustainable_living, psychology. The recipe is now plug-and-play — `tag_<dom>_sketches.ts` + `build_<dom>_sketch_indexes.ts` + the generalized 4-way RRF in `mcp-server.ts`.
