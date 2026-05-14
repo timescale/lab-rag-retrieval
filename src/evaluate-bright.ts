@@ -101,6 +101,8 @@ interface ClaudeResult {
   rankedIds: string[];
   toolCalls: ToolCallRecord[];
   retrievedIds: Set<string>;
+  failed?: boolean; // true if claude-cli failed all retries (e.g. rate-limited)
+  failReason?: string;
 }
 
 async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, effort: string): Promise<ClaudeResult> {
@@ -183,19 +185,21 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, e
 }
 
 async function askClaude(prompt: string, mcpConfig: string, model: string, effort: string): Promise<ClaudeResult> {
+  let lastErr = "";
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       return await askClaudeOnce(prompt, mcpConfig, model, effort);
     } catch (e: any) {
+      lastErr = e.message?.slice(0, 300) ?? "unknown";
       if (attempt < MAX_RETRIES) {
         process.stderr.write(`  retry(${attempt + 1}) `);
       } else {
-        console.error(`  claude failed after ${MAX_RETRIES + 1} attempts: ${e.message?.slice(0, 100)}`);
-        return { rankedIds: [], toolCalls: [], retrievedIds: new Set() };
+        console.error(`  claude failed after ${MAX_RETRIES + 1} attempts: ${lastErr.slice(0, 100)}`);
+        return { rankedIds: [], toolCalls: [], retrievedIds: new Set(), failed: true, failReason: lastErr };
       }
     }
   }
-  return { rankedIds: [], toolCalls: [], retrievedIds: new Set() };
+  return { rankedIds: [], toolCalls: [], retrievedIds: new Set(), failed: true, failReason: "exhausted retries" };
 }
 
 // ---------------------------------------------------------------------------
@@ -364,10 +368,12 @@ async function main() {
             rankingRecall,
             numToolCalls: result.toolCalls.length,
             toolCalls: result.toolCalls,
+            failed: result.failed ?? false,
+            failReason: result.failReason,
           };
 
           completed++;
-          process.stdout.write(`  Query: ${completed}/${examples.length}\n`);
+          process.stdout.write(`  Query: ${completed}/${examples.length}${result.failed ? " [CLAUDE-FAILED — likely rate-limited]" : ""}\n`);
         })(),
       );
     }
@@ -380,6 +386,27 @@ async function main() {
   // Clean up temp excluded-ids files
   try { rmSync(excludedDir, { recursive: true, force: true }); } catch {}
 
+  // Loud check: if more than 10% of queries had claude-cli failures (typically
+  // rate-limit / usage-cap), the aggregate scores are not trustworthy. Print a
+  // big warning and exit non-zero so callers don't blindly record the number.
+  const failedQueries = allResults.filter((r) => (r as any).failed).length;
+  const failedFrac = failedQueries / Math.max(allResults.length, 1);
+  if (failedQueries > 0) {
+    console.log(`!!! CLAUDE-CLI FAILED on ${failedQueries}/${allResults.length} queries (${(failedFrac*100).toFixed(1)}%).`);
+    console.log(`    Most common cause: anthropic 5-hour usage limit. Wait for reset and re-run.`);
+    // sample a couple of fail reasons
+    const reasons = new Map<string, number>();
+    for (const r of allResults) {
+      if ((r as any).failed) {
+        const k = ((r as any).failReason ?? "unknown").slice(0, 120);
+        reasons.set(k, (reasons.get(k) ?? 0) + 1);
+      }
+    }
+    for (const [reason, n] of [...reasons.entries()].sort((a,b) => b[1]-a[1]).slice(0, 3)) {
+      console.log(`    [${n}x] ${reason}`);
+    }
+  }
+
   // Compute aggregates
   const overallNdcg10 = mean(allResults.map((r) => r.ndcg10));
   const overallRetrievalRecall = mean(allResults.map((r) => r.retrievalRecall));
@@ -387,13 +414,22 @@ async function main() {
   const avgToolCalls = mean(allResults.map((r) => r.numToolCalls));
   const queriesWithZeroGoldSeen = allResults.filter((r) => r.retrievalRecall === 0).length;
 
-  console.log(`Domain: ${domain}`);
-  console.log(`  nDCG@10:          ${overallNdcg10.toFixed(3)}`);
-  console.log(`  Retrieval recall: ${overallRetrievalRecall.toFixed(3)}  (gold seen in any tool call)`);
-  console.log(`  Ranking recall:   ${overallRankingRecall.toFixed(3)}  (gold in final top-10)`);
-  console.log(`  Zero-gold queries: ${queriesWithZeroGoldSeen}/${allResults.length}`);
-  console.log(`  Avg tool calls:   ${avgToolCalls.toFixed(1)}`);
-  console.log(`  Queries:          ${allResults.length}\n`);
+  if (failedFrac > 0.1) {
+    console.log(`\n=== Domain: ${domain} ===`);
+    console.log(`  *** RUN UNRELIABLE: ${failedQueries}/${allResults.length} queries failed (${(failedFrac*100).toFixed(1)}% > 10% threshold) ***`);
+    console.log(`  Skipping score reporting and history-log write. Re-run after usage limit resets.`);
+    console.log(`  (Per-query JSON IS still saved for inspection.)`);
+  } else {
+    console.log(`Domain: ${domain}`);
+    console.log(`  nDCG@10:          ${overallNdcg10.toFixed(3)}`);
+    console.log(`  Retrieval recall: ${overallRetrievalRecall.toFixed(3)}  (gold seen in any tool call)`);
+    console.log(`  Ranking recall:   ${overallRankingRecall.toFixed(3)}  (gold in final top-10)`);
+    console.log(`  Zero-gold queries: ${queriesWithZeroGoldSeen}/${allResults.length}`);
+    console.log(`  Avg tool calls:   ${avgToolCalls.toFixed(1)}`);
+    console.log(`  Queries:          ${allResults.length}`);
+    if (failedQueries > 0) console.log(`  Claude failures:  ${failedQueries} (under 10% threshold; metrics include those as 0-recall)`);
+    console.log();
+  }
 
   // Save results
   const timestamp = new Date().toISOString();
@@ -420,6 +456,11 @@ async function main() {
   const resultPath = `results/bright-eval-${safeTimestamp}.json`;
   writeFileSync(resultPath, JSON.stringify(evalRun, null, 2));
 
+  if (failedFrac > 0.1) {
+    console.log(`Per-query JSON saved to ${resultPath} (NOT appended to history.jsonl — unreliable run).`);
+    process.exit(2);
+  }
+
   const historyLine = JSON.stringify({
     timestamp,
     domain,
@@ -428,6 +469,7 @@ async function main() {
     rankingRecall: Number(overallRankingRecall.toFixed(4)),
     queries: allResults.length,
     description,
+    ...(failedQueries > 0 ? { claudeFailures: failedQueries } : {}),
   });
   appendFileSync("results/bright-history.jsonl", historyLine + "\n");
 

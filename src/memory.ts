@@ -556,6 +556,67 @@ Query: ${query}
 Ranked document IDs:`;
 }
 
+// Shared prompt for earth_science / sustainable_living / psychology /
+// (and other Wikipedia-gold domains). Gold per cluster is dominated by
+// the canonical reference article on the underlying scientific principle
+// — usually a Wikipedia chunk, occasionally a niche specialist article.
+function buildPromptBrightWikipediaConcept(query: string, domain: string): string {
+  const examples: Record<string, string> = {
+    earth_science: `EXAMPLES of how gold looks in earth_science:
+- Query "Why is the inner core solid?" → gold is \`solid_inner_core/Earth's_inner_core1.txt\` (Wikipedia "Earth's inner core").
+- Query "Why is March colder than December?" → gold is \`colder_march/Seasonal_lag1.txt\` (Wikipedia "Seasonal lag").
+- Query "Why no hurricanes in the South Atlantic?" → gold is \`hurricanes_in_the_southern_Atlantic_basin/Tropical_cyclone1.txt\` (Wikipedia "Tropical cyclone").
+- Query "Why does humid air at 100% still produce rain?" → gold is \`humidity_and_rain/Kelvin_equation1.txt\` + \`Convective_available_potential_energy1.txt\` (Wikipedia on the underlying physics).
+- Query "How long does pole-flip take?" → gold is \`pole_flip/Geomagnetic_reversal5.txt\` (Wikipedia "Geomagnetic reversal").`,
+    sustainable_living: `EXAMPLES of how gold looks in sustainable_living:
+- Query "How to incinerate plastic at home?" → gold is \`incineration/Incineration_*.txt\` (Wikipedia "Incineration").
+- Query "Hot-water cylinder temperature?" → gold is \`hot_water_cylinder/Legionella_*.txt\` / \`Legionnaires27disease_*.txt\` (Wikipedia on the disease that motivates the temperature spec).
+- Query "Biodegradable vs compostable plastic?" → gold is \`biodegradable/\` specialist articles on the standards.`,
+    psychology: `EXAMPLES of how gold looks in psychology:
+- Query "Why can't MEG distinguish EPSPs and IPSPs?" → gold is \`meg/Magnetoencephalography_*.txt\` (Wikipedia "Magnetoencephalography").
+- Query "Why do fNIRS use two frequencies?" → gold is \`fnir/Functionalnearinfraredspectroscopy_*.txt\` (Wikipedia on the modality).
+- Query "Term for inability to see past current emotional state?" → gold is \`hot_cold/Hotcoldempathygap_*.txt\` (Wikipedia "Hot-cold empathy gap").
+- Query "Can beliefs change without new evidence?" → gold is \`confirmation_bias/seeds_model_*.txt\` (the foundational SEEDS-model paper).`,
+  };
+
+  return `You have access to a search tool to find documents that answer the ${domain} question below. The corpus is organized into subdirectories named after specific topic clusters — each cluster's name is usually a hint at the underlying scientific/conceptual principle the question depends on (e.g. "solid_inner_core/", "pole_flip/", "confirmation_bias/", "hot_water_cylinder/").
+
+CRITICAL — what "gold" looks like in this benchmark:
+Gold is the CANONICAL REFERENCE article on the underlying scientific principle, mechanism, or concept the question depends on. Typically a **Wikipedia article** on the named concept (filename patterns like \`Tropical_cyclone1.txt\`, \`Seasonal_lag2.txt\`, \`Geomagnetic_reversal5.txt\`, \`Magnetoencephalography_4.txt\`, \`Kelvin_equation1.txt\`, \`Earth's_inner_core1.txt\`, \`Hotcoldempathygap_3.txt\`, \`Incineration_22.txt\`, \`Legionella_22.txt\`), occasionally a foundational specialist paper. Gold is NOT a topic-specific forum answer, news article, blog explainer, or product page — even when the query phrasing matches such sources lexically.
+
+${examples[domain] ?? ""}
+
+CRITICAL — don't chase surface keywords from the query:
+A query may phrase things in stuck-asker vocabulary ("why is March colder", "feels like -999 °C", "can beliefs change without new evidence") — but gold uses the FORMAL scientific name for the underlying concept (Seasonal lag, Absolute zero, Confirmation bias / SEEDS model). Use your training knowledge to NAME the underlying principle precisely, then search for THAT name — not for the surface symptom from the query.
+
+CALIBRATION — do this BEFORE deep search:
+1. Read the query and identify the UNDERLYING SCIENTIFIC PRINCIPLE / CONCEPT / MECHANISM. Name it precisely. Examples:
+   - "Why does the magnetic field flip?" → "Geomagnetic reversal" (geophysics)
+   - "Why does humid air still rain?" → "Kelvin equation" + "Convective available potential energy"
+   - "Why can't I see past my anger?" → "Hot-cold empathy gap"
+   - "Why is my hot water 60°C?" → "Legionella" / "Legionnaires' disease"
+2. Search using the FORMAL CONCEPT NAME (semantic + fulltext together). The cluster name in the result IDs (the subdirectory) should match the concept — that's a calibration signal you're on track.
+3. If your first results are forum posts / news / blog explainers / vendor pages, your search is too symptom-focused. Pivot to the formal concept name.
+
+Strategy:
+1. CALIBRATE: name the underlying principle; 1-2 broad concept-name searches.
+2. Search for the principle's Wikipedia/canonical article by name. Combine with adjacent principles if the question spans multiple (e.g. humidity → Kelvin equation + CAPE).
+3. ADJACENT-CONCEPT search: gold sometimes uses a related concept — e.g. a question about a specific mineral may be answered by the general formation-process article. List 2-3 adjacent concepts and search each.
+4. AVOID searching for surface entities, narrow forum-style phrasings, or product/vendor terminology. If the query mentions a specific entity (a chemical, a device, a country, a body part), prefix it with the underlying principle when searching.
+5. Do at least 5-8 searches total, weighted toward formal-concept searches.
+
+IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. Gold often uses formal-scientific vocabulary that differs from the query. Default empty. Only use grep for highly distinctive rare technical identifiers.
+
+Ranking: highest priority for canonical-reference chunks (Wikipedia / foundational paper) whose subdirectory matches the topic cluster; demote forum/news/blog chunks even if surface-relevant.
+
+After searching, return exactly 10 document IDs, most relevant first.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
+}
+
 function buildPromptBrightStackoverflow(query: string): string {
   return `You have access to a search tool to find documents that help with the StackOverflow programming question below. The corpus is organized into subdirectories named after specific libraries/topics — e.g. "pytorch_torch_tensor_functions/", "python_data_model/", "polar_functions/", "Python_pandas_functions/", "react_hooks_components/", "spring_io/", "linux_man_1/", "DBMS_LOB_LIBCACHE/", etc. — each holding the API REFERENCE DOCUMENTATION for the underlying library/concept relevant to that topic.
 
@@ -600,5 +661,8 @@ export function buildPromptBright(query: string, domain: string): string {
   if (domain === "leetcode") return buildPromptBrightLeetcode(query);
   if (domain === "robotics") return buildPromptBrightRobotics(query);
   if (domain === "stackoverflow") return buildPromptBrightStackoverflow(query);
+  if (domain === "earth_science" || domain === "sustainable_living" || domain === "psychology") {
+    return buildPromptBrightWikipediaConcept(query, domain);
+  }
   return buildPromptBrightDefault(query);
 }

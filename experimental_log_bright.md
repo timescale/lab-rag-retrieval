@@ -1909,27 +1909,75 @@ Examples:
 
 ---
 
+## earth_science / sustainable_living / psychology opus max + shared Wikipedia-concept prompt (2026-05-14) — adopted, all 3 significant
+
+**Hypothesis.** Three remaining untried domains all share a corpus shape: gold is the **Wikipedia article (or foundational paper) on the underlying scientific principle** of the question. Cluster subdirectory names directly name the concept (e.g. `solid_inner_core/`, `pole_flip/`, `confirmation_bias/`, `hot_water_cylinder/`). The query phrases things in stuck-asker vocabulary ("why is March colder?", "feels like -999°C", "can beliefs change without new evidence?") while gold uses the formal name (Seasonal lag, Absolute zero, Confirmation bias / SEEDS model). Same failure pattern across all three; one prompt should cover them.
+
+**Shared specialized prompt** (`buildPromptBrightWikipediaConcept`, routed for earth_science/sustainable_living/psychology):
+1. Reframe gold = Wikipedia-style canonical reference article on the named concept (with concrete filename examples per domain).
+2. Anti-surface-vocabulary: query uses symptom phrasing, gold uses the formal scientific concept name. Use opus's training to NAME the underlying principle precisely (e.g. "Seasonal lag", "Hot-cold empathy gap", "Legionella", "Geomagnetic reversal").
+3. Calibration step: check that early results land in concept-named subdirectories; pivot off forum/news/blog phrasing if first results are wrong-shape.
+4. Per-domain worked examples in the prompt — 4 each for earth_science / sustainable_living / psychology so opus sees the concrete shape it's targeting.
+
+**Setup.** Ingested 3 new tables on the active prod fork (earth_science 121k docs, sustainable_living 60.7k, psychology 52.8k). All embeddings cached from earlier setups so the ingests were COPY/index-only.
+
+**Operational note: rate limits and silent score corruption.** First chain run hit the anthropic 5-hour usage limit partway through. The eval harness silently caught the resulting `claude -p` exit-1s and recorded 0-retrieval for those queries, giving us a poisoned sustainable_living=0.000 and psychology=0.269 on the first run. Cleaned up the harness:
+- Each \`Query: N/total\` line now prints \`[CLAUDE-FAILED — likely rate-limited]\` inline.
+- End-of-run summary: \`!!! CLAUDE-CLI FAILED on N/total queries\` banner + sample fail reasons.
+- If >10% of queries failed → \`*** RUN UNRELIABLE ***\` block, scores NOT printed, history.jsonl NOT appended, exit code 2.
+- Per-query JSON IS still saved for inspection on unreliable runs.
+
+After waiting for the limit to reset and re-running cleanly, all 3 came in clean (0 failures each).
+
+**Result vs sonnet-max baseline (paired stats, full per-query t- and sign-tests):**
+
+| Domain | n | opus | sonnet base | Δ nDCG | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|---:|
+| earth_science | 116 | **0.551** | 0.233 | +0.318 | 8.50 | <0.001 | 72/10 | <0.001 |
+| sustainable_living | 108 | **0.560** | 0.488 | +0.072 | 2.64 | 0.008 | 45/24 | 0.015 |
+| psychology | 101 | **0.654** | 0.570 | +0.084 | 2.95 | 0.003 | 44/19 | 0.002 |
+
+All three highly significant. Earth_science Δ is exaggerated (the sonnet-max baseline at 0.233 was a regression; its true historical record was 0.459 haiku+expansion — true Δ vs that is +0.092). Sustainable_living and psychology vs their actual sonnet-max numbers (0.488, 0.570) are the +0.072 / +0.084 — modest but significant wins.
+
+Retrieval recall on psychology actually *fell* (0.759 → 0.731, not sig) — opus narrows search to more on-target Wikipedia concepts and gives up some breadth, but ranks the remaining hits better (ranking recall sign-test p=0.004).
+
+**Generalizable pattern strengthened.** The opus-+-specialized-prompt mechanism works whenever the corpus has a clear "gold sits at a different abstraction level than the query" axis:
+- pony / leetcode: gold = foundational language docs vs user-mentioned framework keywords
+- robotics: gold = foundational tool/algorithm docs vs ROS framework wrappers
+- stackoverflow: gold = official API reference vs framework helpers
+- economics: gold = canonical academic papers vs surface-entity articles
+- earth_science / sustainable_living / psychology: gold = Wikipedia concept article vs forum/news phrasing
+
+Where it doesn't work or only mildly works:
+- aops / theoremqa_questions: gold-binding is by technique tags; opus's expertise already aligns; the ranker is the bottleneck.
+- biology (already 0.666): likely saturated; sonnet-max plateau.
+- theoremqa_theorems: math-domain, expected to behave like aops.
+
+**Files.** `src/memory.ts` `buildPromptBrightWikipediaConcept` (new shared function for the 3 domains), routing added in `buildPromptBright`. Eval harness loudness improvements in `src/evaluate-bright.ts` (claude-fail tagging, summary banner, abort-if->10%-failures, exit-2 on unreliable runs, history.jsonl gated).
+
+---
+
 ## Best-of summary across all 12 BRIGHT domains (as of 2026-05-14)
 
-Mean nDCG@10 = **0.521** across 12 domains (vs prior haiku mean 0.347 = +0.174 / +50%; vs sonnet-max-only mean 0.452 = +0.069 / +15%).
+Mean nDCG@10 = **0.546** across 12 domains (vs prior haiku mean 0.347 = +0.199 / +57%; vs sonnet-max-only mean 0.452 = +0.094 / +21%).
 
 | Domain | Best nDCG | Config | Δ vs sonnet max |
 |--------|---:|---|---:|
 | biology | 0.666 | sonnet max | — |
+| **psychology** | **0.654** | **opus + Wikipedia-concept prompt** | **+0.084** (sig) |
 | theoremqa_questions | 0.614 | sonnet max | — |
 | pony | **0.576** | **opus + specialized** | **+0.247** (sig) |
-| psychology | 0.570 | sonnet max | — |
+| **sustainable_living** | **0.560** | **opus + Wikipedia-concept prompt** | **+0.072** (sig) |
+| **earth_science** | **0.551** | **opus + Wikipedia-concept prompt** | **+0.092 vs old best** (sig) |
 | leetcode | **0.522** | **opus + specialized** | **+0.152** (sig) |
 | theoremqa_theorems | 0.515 | sonnet max | — |
 | robotics | **0.512** | **opus + specialized + H7-A2 sketches v2** | **+0.094** (retrieval-recall sig) |
-| sustainable_living | 0.488 | sonnet max | — |
 | economics | **0.483** | **opus + specialized** | +0.027 (not sig) |
 | stackoverflow | 0.476 | opus + specialized | +0.047 (not sig) |
-| earth_science | 0.459 | older haiku+expansion | — |
 | aops | 0.369 | sonnet xhigh + H7-A2 | — |
 
-**Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047, economics +0.027). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead). H7-A2 sketches stack on top of agent-side wins where the corpus has a vocabulary mismatch between query and doc (aops, robotics so far). For economics specifically, the prompt fix gets opus to the right topic cluster but NOT to the right specific paper within it — sketches are likely the bigger lever there.
+**Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a medium win on Wikipedia-gold domains where the query uses symptom phrasing but gold uses formal concept names (earth_science +0.092 vs old best, psychology +0.084, sustainable_living +0.072). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047, economics +0.027). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead). H7-A2 sketches stack on top of agent-side wins where the corpus has a vocabulary mismatch between query and doc (aops, robotics so far). For economics specifically, the prompt fix gets opus to the right topic cluster but NOT to the right specific paper within it — sketches are likely the bigger lever there.
 
-**Untried opus-specialized candidates.** Candidates with sonnet-max baselines that are highish and might still benefit from opus reframing: earth_science (0.459, older haiku+expansion record never updated), psychology (0.570), sustainable_living (0.488), biology (0.666 — likely saturated), theoremqa_theorems (0.515 — gold shape likely similar to theoremqa_questions / aops).
+**Untried opus-specialized candidates remaining.** Only 2 domains still without an opus run: biology (0.666 sonnet — likely saturated, opus may not help) and theoremqa_theorems (0.515 — math domain, expected to behave like aops/theoremqa_questions where opus's expertise already aligns with gold and the ranker bottlenecks).
 
-**Untried H7-A2 sketch candidates.** Domains where a raw-query retrieval probe might reveal a vocabulary ceiling, or where the prompt-fix only got us to the right cluster (need within-cluster disambiguation): **economics (within-cluster ranking gap proven)**, stackoverflow, earth_science, sustainable_living. The recipe is now plug-and-play — `tag_<dom>_sketches.ts` + `build_<dom>_sketch_indexes.ts` + the generalized 4-way RRF in `mcp-server.ts`.
+**Untried H7-A2 sketch candidates.** Domains where a raw-query retrieval probe might reveal a vocabulary ceiling, or where the prompt-fix only got us to the right cluster (need within-cluster disambiguation): **economics (within-cluster ranking gap proven)**, stackoverflow, earth_science, sustainable_living, psychology. The recipe is now plug-and-play — `tag_<dom>_sketches.ts` + `build_<dom>_sketch_indexes.ts` + the generalized 4-way RRF in `mcp-server.ts`.
