@@ -81,3 +81,4 @@
 {"timestamp":"2026-05-07T19:48:47.518Z","domain":"robotics","ndcg10":0.4937,"retrievalRecall":0.5864,"rankingRecall":0.52,"queries":101,"description":"robotics opus max + sketches (with 11 errored docs recovered)"}
 {"timestamp":"2026-05-13T09:46:39.609Z","domain":"robotics","ndcg10":0,"retrievalRecall":0,"rankingRecall":0,"queries":101,"description":"robotics opus max + sketches v2 (sonnet + structured + research-paper-aware prompt)"}
 {"timestamp":"2026-05-13T10:14:26.977Z","domain":"robotics","ndcg10":0.5121,"retrievalRecall":0.5945,"rankingRecall":0.5273,"queries":101,"description":"robotics opus max + sketches v2 (after MCP optional-args fix)"}
+{"timestamp":"2026-05-14T04:36:50.796Z","domain":"economics","ndcg10":0.483,"retrievalRecall":0.6605,"rankingRecall":0.4737,"queries":103,"description":"economics opus max + specialized prompt (canonical-source reframe, anti-surface-entity)"}

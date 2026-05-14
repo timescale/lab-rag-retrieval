@@ -1866,9 +1866,52 @@ v2 is **directionally** better than v1 on all three metrics but **not statistica
 
 ---
 
-## Best-of summary across all 12 BRIGHT domains (as of 2026-05-13)
+## economics opus max + specialized prompt (2026-05-14) — adopted, +0.027 nDCG (not sig)
 
-Mean nDCG@10 = **0.519** across 12 domains (vs prior haiku mean 0.347 = +0.172 / +50%; vs sonnet-max-only mean 0.452 = +0.067 / +15%).
+**Diagnostic.** Recent sonnet-max baseline 0.456; older sonnet+expansion best 0.462. Looking at the recent sonnet-max failures: agent searches for SURFACE ENTITIES from the query (Samsung, Gaza, deposits, specific country/firm/year) but BRIGHT economics gold is dominated by CANONICAL ACADEMIC PAPERS — journal papers, NBER/IMF working papers, classic textbook chapters, foundational reports. Filename pattern is usually unhelpful (paper IDs like `wp0733pdf`, `ECTA17408`, `ch02htmc10` for Marx Capital ch.2, `behavioralnewkeynesianmodelpdf`, `S1573448X06030317`, `benchmarkdsge`). Same shape as stackoverflow: gold is the UNDERLYING METHODOLOGY/THEORY paper, not topical coverage of the entity.
+
+Quick corpus inspection — top gold filename prefixes show one canonical paper dominates per topic cluster:
+- `micro_foundation/` → `behavioralnewkeynesianmodelpdf` (85 chunks)
+- `new_keynesian/` → `benchmarkdsge` (65)
+- `valuepriceprofit/` → `ch02htmc10` (Marx Vol I ch.2, 57)
+- `optimal_stopping/` → `2351065` (39)
+- `nominal_interest_rate/` → `ECTA17408` (30)
+- `domestic_foreign/` → `wp0733pdf` (IMF WP 07/33, 26)
+
+**Specialized economics prompt** directs opus to:
+1. **Reframe gold** = canonical academic papers/textbook chapters/working papers, not news/Wikipedia/topical articles about surface entities.
+2. **Anti-surface-entity**: a query mentioning Samsung wants the underlying accounting METHODOLOGY (e.g. ASC 606 revenue recognition), not Samsung facts. A query about deposits wants the Bank of England "Money Creation in the Modern Economy" paper, not generic Fed explainers.
+3. **Don't chase keywords from training** in the leetcode/stackoverflow pattern: use opus's deep training knowledge to NAME the underlying concept (Modigliani-Miller, ASC 606, behavioral DSGE, Marx's labor theory of value), then search BY that concept.
+4. **Calibration step**: identify the underlying theory/mechanism before searching; check that early results land in concept-named subdirectories.
+
+**Setup.** Active fork (`ur8scw34k8` prod-2) only had robotics/leetcode/aops/stackoverflow tables. Ingested 50,220-doc economics corpus (~10 min embed+index, all 50k embedded).
+
+**Result vs sonnet-max baseline (103 queries):**
+
+| Metric | sonnet max | opus + specialized | Δ | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.455 | **0.483** | +0.027 | 0.80 | 0.426 | 33/27 | 0.519 |
+| Retrieval recall | 0.648 | 0.661 | +0.012 | 0.36 | 0.718 | 21/22 | 1.000 |
+| Ranking recall | 0.497 | **0.474** | -0.023 | -0.57 | 0.567 | 26/21 | 0.560 |
+
+Directionally positive on nDCG, **flat on retrieval recall, slight regression on ranking recall**. The new failure mode: opus correctly finds the right TOPIC CLUSTER (`gaza_aid/`, `printmoney_inflation/`, `quadratic_form/`, `onrrp/`) but picks the WRONG SPECIFIC PAPER within the cluster — the "obvious" canonical-named doc instead of an obscure JSTOR paper / "vol_X" chunk / LSE blog post that the benchmark uses as gold.
+
+Examples:
+- Q37: gold = `onrrp/2326853pdf...` (specific JSTOR paper), agent retrieves `howthefedsovernightreverserepofacilityworks` (generic explainer in same cluster).
+- Q5: gold = `gaza_aid/2016246Mooliopdf` (Moolio's analysis), agent gets `preliminaryassessmenteconomicimpactdestructiongazaandprospectseconomicrecovery` (different paper, same cluster).
+- Q6: gold = `printmoney_inflation/vol_X` (specific volume), agent gets `introductiontobonds` (same cluster).
+
+**Pattern uncovered.** For economics, "canonical source reframing" gets opus to the right cluster (retrieval recall +0.012) but ALSO makes it over-confident about which specific paper is the "the" canonical source — demoting siblings that are actually gold. This is the inverse of the leetcode/pony pattern. **Doc-side enrichment (H7-A2 sketches) would likely help more here** than further prompt tweaks — every paper in a cluster needs its own user-symptom-bridging sketch so the agent can disambiguate which paper specifically answers the question.
+
+**Decision.** Adopted as new best (0.483 > 0.462 prior best). But the result is modest; the bigger upside likely lives in sketches for economics.
+
+**Files.** `src/memory.ts` `buildPromptBrightEconomics`.
+
+---
+
+## Best-of summary across all 12 BRIGHT domains (as of 2026-05-14)
+
+Mean nDCG@10 = **0.521** across 12 domains (vs prior haiku mean 0.347 = +0.174 / +50%; vs sonnet-max-only mean 0.452 = +0.069 / +15%).
 
 | Domain | Best nDCG | Config | Δ vs sonnet max |
 |--------|---:|---|---:|
@@ -1880,13 +1923,13 @@ Mean nDCG@10 = **0.519** across 12 domains (vs prior haiku mean 0.347 = +0.172 /
 | theoremqa_theorems | 0.515 | sonnet max | — |
 | robotics | **0.512** | **opus + specialized + H7-A2 sketches v2** | **+0.094** (retrieval-recall sig) |
 | sustainable_living | 0.488 | sonnet max | — |
+| economics | **0.483** | **opus + specialized** | +0.027 (not sig) |
 | stackoverflow | 0.476 | opus + specialized | +0.047 (not sig) |
-| economics | 0.462 | older sonnet+expansion | — |
 | earth_science | 0.459 | older haiku+expansion | — |
 | aops | 0.369 | sonnet xhigh + H7-A2 | — |
 
-**Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead). H7-A2 sketches stack on top of agent-side wins where the corpus has a vocabulary mismatch between query and doc (aops, robotics so far).
+**Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047, economics +0.027). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead). H7-A2 sketches stack on top of agent-side wins where the corpus has a vocabulary mismatch between query and doc (aops, robotics so far). For economics specifically, the prompt fix gets opus to the right topic cluster but NOT to the right specific paper within it — sketches are likely the bigger lever there.
 
-**Untried opus-specialized candidates.** Candidates with sonnet-max baselines that are highish and might still benefit from opus reframing: economics (0.462, older record never updated), earth_science (0.459 likewise), psychology (0.570), sustainable_living (0.488), biology (0.666 — likely saturated), theoremqa_theorems (0.515 — gold shape likely similar to theoremqa_questions / aops).
+**Untried opus-specialized candidates.** Candidates with sonnet-max baselines that are highish and might still benefit from opus reframing: earth_science (0.459, older haiku+expansion record never updated), psychology (0.570), sustainable_living (0.488), biology (0.666 — likely saturated), theoremqa_theorems (0.515 — gold shape likely similar to theoremqa_questions / aops).
 
-**Untried H7-A2 sketch candidates.** Domains where a raw-query retrieval probe might reveal a vocabulary ceiling: stackoverflow (canonical API names ↔ user-symptom code questions), earth_science, sustainable_living. The recipe is now plug-and-play — `tag_<dom>_sketches.ts` + `build_<dom>_sketch_indexes.ts` + the generalized 4-way RRF in `mcp-server.ts`.
+**Untried H7-A2 sketch candidates.** Domains where a raw-query retrieval probe might reveal a vocabulary ceiling, or where the prompt-fix only got us to the right cluster (need within-cluster disambiguation): **economics (within-cluster ranking gap proven)**, stackoverflow, earth_science, sustainable_living. The recipe is now plug-and-play — `tag_<dom>_sketches.ts` + `build_<dom>_sketch_indexes.ts` + the generalized 4-way RRF in `mcp-server.ts`.

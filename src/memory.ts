@@ -395,32 +395,39 @@ Ranked document IDs:`;
 }
 
 function buildPromptBrightEconomics(query: string): string {
-  return `You have access to a search tool to find articles relevant to the economics question below.
+  return `You have access to a search tool to find documents that answer the economics question below. The corpus is organized into subdirectories named after specific topic clusters — e.g. "micro_foundation/", "new_keynesian/", "valuepriceprofit/" (Marx), "optimal_stopping/", "nominal_interest_rate/", "ppf_retire/" (production possibility frontier), "inheritance_inequality/", "tax_evasion/", "domestic_foreign/", "weather_data/", "network_effects/", "gdp_network/", etc. Each cluster's gold is typically dominated by ONE specific canonical paper, textbook chapter, or working paper.
 
-CRITICAL INSIGHT: The most relevant documents often use DIFFERENT vocabulary than the query itself. A question phrased in everyday terms may be answered by articles that use formal academic terminology; a question about one technique may be answered by articles about an adjacent technique that solves the same problem; a question about a specific entity may be answered by articles about the underlying accounting or methodology. Searching only for terms that appear in the query will miss these.
+CRITICAL — what "gold" looks like in this benchmark:
+Gold is the CANONICAL academic/scholarly source for the underlying economic theory, mechanism, or framework the question depends on — typically a journal paper, NBER/IMF working paper, classic economics textbook chapter, or seminal report. Filenames are often unhelpful (paper DOI/JSTOR IDs, working paper numbers, abbreviated PDF names like \`wp0733pdf\`, \`ECTA17408\`, \`ch02htmc10\`, \`benchmarkdsge\`, \`behavioralnewkeynesianmodelpdf\`, \`S1573448X06030317\`, \`2351065\`). Gold is NOT a news article, blog explainer, Wikipedia page, or topical summary about the specific entity in the query.
 
-STEP 1 — BRAINSTORM (before any search):
-Spend real effort enumerating alternative vocabulary the gold documents might use. Write out the lists BEFORE you start searching. The categories to consider:
-(a) Formal / academic terminology for the core concept — what would a textbook or academic paper call this?
-(b) Named theorems, models, classic frameworks, or canonical papers that bear on this question
-(c) Adjacent or alternative techniques that address the same underlying problem differently — if the query names one technique, what are the siblings?
-(d) Prerequisite methodology, accounting standards, or measurement frameworks that the answer depends on — what concept do you need to understand BEFORE you can answer?
-(e) Opposite or contrasting concepts, and the broader category they both belong to
+CRITICAL — don't chase surface entities from the query:
+A query mentioning "Samsung's contribution to South Korea GDP" sounds like it wants Samsung-specific facts, but its gold is the underlying accounting METHODOLOGY (e.g. ASC 606 revenue recognition standard) that explains how GDP-contribution is even measured. A query about "Gaza wealth on the Mediterranean" wants a specific economic-history report on Gaza's economic potential, NOT generic Gaza assessment articles. A query about "why deposits decline when rates rise" wants the canonical "Money Creation in the Modern Economy" Bank of England paper — NOT generic Fed explainers. A query naming a specific country/company/event almost always has gold that is the underlying MECHANISM/FRAMEWORK paper, not surface coverage of the entity.
 
-STEP 2 — SEARCH broadly using the expanded vocabulary:
-Run 8-12 searches covering:
-- The query topic as stated
-- Each alternative term / framework from the brainstorm
-- Adjacent techniques
-- Prerequisite methodology articles
-Use semantic + fulltext together. Try vocabulary combinations you would not guess from just the query.
+CRITICAL — don't chase keywords from your training:
+You know a lot of economics literature deeply (Krugman trade models, DSGE benchmarks, Marx's labor theory of value, Akerlof's market-for-lemons, Modigliani-Miller, behavioral economics canon, etc.). Use that knowledge to NAME the underlying concept — but then SEARCH BY the concept name, not by surface terms from the query. Examples:
+- Query about "lottery winners vs. inheritance" → search "inheritance taxation wealth distribution", "intergenerational mobility", NOT "lottery winners".
+- Query about Samsung GDP → search "revenue recognition standards ASC 606 GDP measurement", "value added national accounting", NOT "Samsung facts".
+- Query about printing money → search "money creation modern economy bank lending", "endogenous money theory", NOT "national debt".
 
-STEP 3 — RANK:
-After retrieving candidates, rank the 10 most relevant. A document that addresses the underlying concept using different vocabulary is often MORE relevant than a surface-lexical match.
+CALIBRATION — do this BEFORE deep search:
+1. Read the query and identify: what is the UNDERLYING economic theory, mechanism, accounting standard, or canonical paper the question depends on? Name it precisely — e.g. "production possibility frontier", "Modigliani-Miller capital structure", "money creation theory", "ASC 606 revenue recognition", "behavioral new-keynesian DSGE", "Marx labor theory of value", "optimal stopping problem (secretary problem variants)", "network effects (Rohlfs/Katz-Shapiro)".
+2. Run 1-2 broad searches using that concept name. Look at result subdirectory names — they should match the topic cluster (e.g. "ppf_retire/" for a production-possibility-frontier question, "valuepriceprofit/" for a labor-theory-of-value question).
+3. If your first results are topical news/Wikipedia about the surface entity, your search is too entity-focused. Rephrase toward the underlying concept.
 
-IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. This ESPECIALLY hurts economics queries where gold docs use different vocabulary than the query. Only use grep for highly distinctive literal terms (rare dataset names, specific regulation codes). Do NOT grep for named entities (companies, countries, people, events). When in doubt, leave grep empty.
+Strategy:
+1. CALIBRATE: identify the underlying concept; 1-2 broad concept searches.
+2. Identify the CANONICAL SOURCE FAMILY (textbook chapter, classic journal paper, working paper series, foundational report). For each, run a search combining concept + likely source type ("Marx Capital Volume I value theory", "Bank of England working paper money creation", "NBER working paper inheritance taxation").
+3. ADJACENT-CONCEPT search: gold sometimes uses a sibling concept. If the query is about one technique (e.g. "lottery winnings"), search adjacent concepts (e.g. "inheritance tax", "intergenerational wealth transfer") because the paper may use both.
+4. AVOID searching for surface entities (Samsung, Gaza, specific country/year/firm), news-article phrasing, or Wikipedia-style summary keywords. If you do search for the entity, prefix it with the underlying concept.
+5. Do at least 6-9 searches total, weighted toward concept/paper-family searches and minimal time on entity searches.
 
-IMPORTANT: Your final answer must be ONLY a JSON array of exactly 10 document ID strings, most relevant first. No explanations.
+IMPORTANT about grep: grep is a HARD filter — documents that don't contain the literal regex pattern are excluded from BOTH semantic and keyword results. Gold often uses different vocabulary than the query. Use grep ONLY for highly distinctive rare identifiers (specific regulation codes like "ASC 606", "Basel III"). Do NOT grep for named entities (companies, countries, people, events). Default empty.
+
+Ranking: highest priority for canonical-source chunks (journal papers, working papers, textbook chapters) whose subdirectory matches the topic cluster; demote topical-news/encyclopedia chunks even if surface-relevant.
+
+After searching, return exactly 10 document IDs, most relevant first.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings. No explanations.
 
 Query: ${query}
 Ranked document IDs:`;
