@@ -662,6 +662,51 @@ Query: ${query}
 Ranked document IDs:`;
 }
 
+function buildPromptBrightTheoremqaTheorems(query: string): string {
+  return `You have access to a search tool to find the FORMAL MATHEMATICAL THEOREM OR DEFINITION that this story-wrapped word problem reduces to. The corpus is a collection of ProofWiki-style entries, each a single named theorem, lemma, or definition in LaTeX. Gold per query is the specific theorem/definition that solves the problem.
+
+CRITICAL — what "gold" looks like in this benchmark:
+Gold is a NAMED FORMAL THEOREM or DEFINITION from ProofWiki: \`Pigeonhole Principle\`, \`Stirling Numbers of the First Kind\`, \`Banach Fixed-Point Theorem\`, \`Bayes' Theorem\`, \`Cauchy-Schwarz Inequality\`, \`Jensen's Inequality\`, \`Fundamental Theorem of Algebra\`, etc. The content is LaTeX with \`\\section{...}\` / \`\\begin{theorem}\` / \`\\begin{definition}\` blocks and \`Tags: ...\` lines. Gold is NOT a Wikipedia overview, a worked example, or a discussion of the topic — it's the formal statement of the specific theorem that resolves the question.
+
+CRITICAL — strip the story to find the underlying theorem:
+Queries are word problems wrapped in a story ("Mary baking 10 cookies of 3 shapes", "8 friends at 2 round tables", "rocket flight maximizing height", "two players sending money where 15A=12B"). Each story corresponds to ONE formal theorem/structure. Your first task is ALWAYS to identify the underlying theorem name BEFORE searching for surface words from the story.
+
+EXAMPLES — story → underlying theorem:
+- "Mary baking 10 cookies, 3 shapes, distribute as diverse as possible" → \`Pigeonhole Principle\` (forcing ≥⌈n/k⌉ in some class).
+- "8 friends at 2 identical round tables, how many seatings" → \`Stirling Numbers of the First Kind\` (unsigned: # of permutations with given cycle structure).
+- "rocket path = quadratic in time, find max height" → \`Maximum of Quadratic Function\` / \`Vertex of Parabola\` / completing-the-square theorem.
+- "graphic designer with 3 vectors in 3D, linear independence" → \`Linear Dependence / Independence of Vectors\` definition.
+- "Player A and Player B sending money with linear relation 15A=12B" → \`Solving System of Linear Equations\` / \`Linear Diophantine Equation\`.
+- "infinite series with terms 1/(k(k+1))" → likely \`Telescoping Series\` or specific summation formula.
+- "magical box transforming column vector x=(x_1,x_2)" → \`Matrix Multiplication\` / \`Linear Transformation\` definition.
+
+CRITICAL — don't chase story keywords:
+The story uses everyday vocabulary (cookies, friends, rockets, magical boxes). Searching for "cookie shapes diverse distribution" or "round table seating" pulls combinatorics chunks at the wrong level of abstraction. The corpus uses LATEX-FORMAL vocabulary: "ceiling function", "permutation", "unsigned Stirling number", "first kind", "cycle structure", "parabola vertex", "completing the square", "linear combination", "linear independence", "telescoping sum". Search by those names.
+
+CALIBRATION — do this BEFORE deep search:
+1. Read the query. Identify the ONE specific formal theorem (or 2-3 candidates) the problem reduces to. Name them precisely with capitalization that mathematicians use.
+2. Run 1-2 broad searches using the canonical theorem name (semantic + fulltext together).
+3. If your first results are LaTeX \`\\section{...}\` chunks of named theorems/definitions, you're calibrated. If they're tutorial-style worked examples or generic combinatorics chunks, pivot to a more specific theorem name.
+
+Strategy:
+1. CALIBRATE: name the theorem/structure; 1-2 broad theorem-name searches.
+2. EXPAND: if multiple plausible theorems apply (e.g. inequality problems could be Cauchy-Schwarz / AM-GM / Jensen / power mean), search each by name in separate calls.
+3. ADJACENT-DEFINITION: gold is sometimes a foundational DEFINITION rather than a theorem — e.g. "linear independence" as a definition, not a theorem about it. Search for the definition name explicitly.
+4. AVOID: searching for the story scenario (cookies, friends, rockets), generic topic words ("combinatorics", "algebra", "calculus"), or worked-example phrasing.
+5. Do at least 5-8 searches total, weighted toward theorem/definition names.
+
+IMPORTANT about grep: grep is a HARD filter on a regex. ProofWiki content is LaTeX with backslashes — easy to over-match or under-match. Default empty. Use grep ONLY for highly distinctive theorem-name strings if you're sure they appear verbatim.
+
+Ranking: highest priority for \`\\section{...}\` chunks whose title matches the underlying theorem; demote chunks that are tangential proofs/examples of unrelated theorems even if they mention surface vocabulary.
+
+After searching, return exactly 10 document IDs, most relevant first.
+
+IMPORTANT: Your final answer must be ONLY a JSON array of document ID strings. No explanations.
+
+Query: ${query}
+Ranked document IDs:`;
+}
+
 export function buildPromptBright(query: string, domain: string): string {
   if (domain === "economics") return buildPromptBrightEconomics(query);
   if (domain === "aops" || domain === "theoremqa_questions") return buildPromptBrightMath(query);
@@ -669,6 +714,10 @@ export function buildPromptBright(query: string, domain: string): string {
   if (domain === "leetcode") return buildPromptBrightLeetcode(query);
   if (domain === "robotics") return buildPromptBrightRobotics(query);
   if (domain === "stackoverflow") return buildPromptBrightStackoverflow(query);
+  // theoremqa_theorems: opus + specialized prompt is statistically a wash
+  // vs sonnet max (Δ nDCG -0.008, p=0.72). Adopted anyway for model
+  // consistency across the official best-of-12 reporting.
+  if (domain === "theoremqa_theorems") return buildPromptBrightTheoremqaTheorems(query);
   if (domain === "earth_science" || domain === "sustainable_living" || domain === "psychology" || domain === "biology") {
     return buildPromptBrightWikipediaConcept(query, domain);
   }

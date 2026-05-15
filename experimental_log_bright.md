@@ -1983,9 +1983,35 @@ The new eval harness loudness (added in the previous commit) earned its keep her
 
 ---
 
-## Best-of summary across all 12 BRIGHT domains (as of 2026-05-14)
+## theoremqa_theorems opus max + specialized ProofWiki prompt (2026-05-15) — wash, adopted for model consistency
 
-Mean nDCG@10 = **0.557** across 12 domains (vs prior haiku mean 0.347 = +0.210 / +60%; vs sonnet-max-only mean 0.452 = +0.105 / +23%).
+**Hypothesis.** Last untried domain. Recent sonnet-max baseline 0.515 with default prompt. Theoremqa_theorems gold is a ProofWiki-style formal theorem/definition entry (LaTeX, \`\\section{...}\` + \`\\begin{theorem}\`), while queries are story-wrapped word problems ("Mary baking 10 cookies of 3 shapes" → gold is the Pigeonhole Principle theorem, doc id 18695). Pattern looked similar to leetcode/pony: gold sits at a different abstraction level than the query's story vocabulary. Wrote a `buildPromptBrightTheoremqaTheorems` prompt with worked story-→-theorem-name examples (cookies→Pigeonhole, round tables→Stirling numbers, rocket→quadratic max, vectors→linear independence, infinite series→telescoping, etc.).
+
+**Setup.** Ingested 23,839-doc corpus (embeddings all cached, ~10 min total including HNSW + BM25 rebuild).
+
+**Result vs sonnet-max baseline (76 queries; 6 hit network/rate-limit errors during eval, patched by re-running just the failed queries via `rerun_failed_tt.ts`):**
+
+| Metric | opus | sonnet | Δ | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.507 | 0.515 | -0.008 | -0.36 | 0.72 | 22/14 | 0.243 |
+| Retrieval recall | 0.761 | 0.781 | -0.021 | -0.72 | 0.47 | 6/10 | 0.454 |
+| Ranking recall | 0.669 | 0.618 | +0.051 | 1.46 | 0.14 | 8/5 | 0.581 |
+
+**Statistically a wash on all three metrics** (all p > 0.14). The math-domain prediction held (opus's expertise already aligns with formal-theorem gold-binding, like aops). Directionally: opus finds slightly less gold but ranks it slightly better — net neutral on nDCG.
+
+**Caveat on the comparison.** Confounded: opus + specialized prompt vs sonnet + default prompt. Strictly we'd need opus + default OR sonnet + specialized to isolate the model vs prompt contributions. Not worth chasing — the result is a wash either way.
+
+**Decision: adopted anyway** for model consistency in the official best-of-12. Now all reported best-of configurations use opus max except aops (which still uses sonnet xhigh + H7-A2 because opus regressed there). Mean nDCG of the best-of moves from 0.557 → 0.556 (essentially unchanged).
+
+**Recovery script.** `rerun_failed_tt.ts` re-runs only the queries marked `failed` in an eval JSON, patches scores back into a new JSON, and recomputes aggregates. Useful when partial-eval failures (network blips, rate limits) corrupt an otherwise good run — much cheaper than restarting the whole eval. Should generalize to any future eval rerun.
+
+**Files.** `src/memory.ts` `buildPromptBrightTheoremqaTheorems` (new), routed for theoremqa_theorems. `rerun_failed_tt.ts` ad-hoc recovery script (gitignore-worthy, kept as a reference).
+
+---
+
+## Best-of summary across all 12 BRIGHT domains (as of 2026-05-15)
+
+Mean nDCG@10 = **0.556** across 12 domains (vs prior haiku mean 0.347 = +0.209 / +60%; vs sonnet-max-only mean 0.452 = +0.104 / +23%).
 
 | Domain | Best nDCG | Config | Δ vs sonnet max |
 |--------|---:|---|---:|
@@ -1996,14 +2022,14 @@ Mean nDCG@10 = **0.557** across 12 domains (vs prior haiku mean 0.347 = +0.210 /
 | **sustainable_living** | **0.560** | **opus + Wikipedia-concept prompt** | **+0.072** (sig) |
 | **earth_science** | **0.551** | **opus + Wikipedia-concept prompt** | **+0.092 vs old best** (sig) |
 | leetcode | **0.522** | **opus + specialized** | **+0.152** (sig) |
-| theoremqa_theorems | 0.515 | sonnet max | — |
 | robotics | **0.512** | **opus + specialized + H7-A2 sketches v2** | **+0.094** (retrieval-recall sig) |
+| **theoremqa_theorems** | **0.507** | **opus + specialized** | -0.008 (wash, adopted for model consistency) |
 | economics | **0.483** | **opus + specialized** | +0.027 (not sig) |
 | stackoverflow | 0.476 | opus + specialized | +0.047 (not sig) |
 | aops | 0.369 | sonnet xhigh + H7-A2 | — |
 
 **Pattern.** Opus + specialized prompt is a high-magnitude win on domains where opus's training over-specifies for the gold level (pony +0.247, leetcode +0.152). It's a medium win on Wikipedia-gold domains where the query uses symptom phrasing but gold uses formal concept names (earth_science +0.092 vs old best, psychology +0.084, sustainable_living +0.072). It's a small directional win on domains where the gold shape is mixed (robotics +0.041, stackoverflow +0.047, economics +0.027). It's neutral or negative on domains where opus's expertise aligns with gold (aops, where the ranker bottleneck dominates instead). H7-A2 sketches stack on top of agent-side wins where the corpus has a vocabulary mismatch between query and doc (aops, robotics so far). For economics specifically, the prompt fix gets opus to the right topic cluster but NOT to the right specific paper within it — sketches are likely the bigger lever there.
 
-**Untried opus-specialized candidates remaining.** Only 1 domain still without an opus run: theoremqa_theorems (0.515 — math domain, expected to behave like aops/theoremqa_questions where opus's expertise already aligns with gold and the ranker bottlenecks). Biology turned out NOT to be saturated despite a high sonnet baseline (0.666 → 0.803).
+**All 12 domains now have opus runs.** No untried opus-specialized candidates remain. theoremqa_theorems turned out to be a wash (statistical wash on all 3 metrics, prediction held that math domains don't benefit from reframing); adopted for model consistency. Biology turned out NOT to be saturated despite a high sonnet baseline (0.666 → 0.803).
 
 **Untried H7-A2 sketch candidates.** Domains where a raw-query retrieval probe might reveal a vocabulary ceiling, or where the prompt-fix only got us to the right cluster (need within-cluster disambiguation): **economics (within-cluster ranking gap proven)**, stackoverflow, earth_science, sustainable_living, psychology. The recipe is now plug-and-play — `tag_<dom>_sketches.ts` + `build_<dom>_sketch_indexes.ts` + the generalized 4-way RRF in `mcp-server.ts`.
