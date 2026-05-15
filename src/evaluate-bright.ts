@@ -89,7 +89,11 @@ function mcpConfigFor(
 const MCP_TOOLS = "mcp__recall__me_memory_search";
 const TIMEOUT_MS = 1_200_000; // 20 min — opus max with dense specialized prompts can take a while before first tool call
 const MAX_RETRIES = 2;
-const JSON_SCHEMA = '{"type":"object","properties":{"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
+// Schema accepts an optional `answer` string in addition to ranked_ids. Some
+// prompts (e.g. stackoverflow's "search-then-answer" variant) ask the agent to
+// produce both. The harness only USES ranked_ids; the answer is recorded in the
+// per-query JSON for inspection / future analysis.
+const JSON_SCHEMA = '{"type":"object","properties":{"answer":{"type":"string"},"ranked_ids":{"type":"array","items":{"type":"string"}}},"required":["ranked_ids"]}';
 
 interface ToolCallRecord {
   tool: string;
@@ -99,6 +103,7 @@ interface ToolCallRecord {
 
 interface ClaudeResult {
   rankedIds: string[];
+  answer?: string;
   toolCalls: ToolCallRecord[];
   retrievedIds: Set<string>;
   failed?: boolean; // true if claude-cli failed all retries (e.g. rate-limited)
@@ -133,6 +138,7 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, e
     const toolCalls: ToolCallRecord[] = [];
     const retrievedIds = new Set<string>();
     let rankedIds: string[] = [];
+    let answer: string | undefined;
 
     for (const evt of events) {
       if (evt.type === "assistant") {
@@ -170,6 +176,9 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, e
         if (output?.ranked_ids && Array.isArray(output.ranked_ids)) {
           rankedIds = output.ranked_ids;
         }
+        if (typeof output?.answer === "string") {
+          answer = output.answer;
+        }
       }
     }
 
@@ -178,7 +187,7 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, e
       rankedIds = [...retrievedIds];
     }
 
-    return { rankedIds, toolCalls, retrievedIds };
+    return { rankedIds, answer, toolCalls, retrievedIds };
   } catch {
     return { rankedIds: [], toolCalls: [], retrievedIds: new Set() };
   }
@@ -368,6 +377,7 @@ async function main() {
             rankingRecall,
             numToolCalls: result.toolCalls.length,
             toolCalls: result.toolCalls,
+            answer: result.answer,
             failed: result.failed ?? false,
             failReason: result.failReason,
           };

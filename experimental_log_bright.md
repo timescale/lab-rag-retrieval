@@ -2075,6 +2075,42 @@ All within noise (all p > 0.65). The answer-first commit produces tactically tig
 
 ---
 
+## stackoverflow search-then-answer prompt (2026-05-15) — non-viable, reverted
+
+**Hypothesis (refined from answer-first).** The answer-first variant put answering BEFORE search, which used training memory and didn't engage with retrieved content. This variant inverts the order: opus searches first (existing strategy intact), then writes a concise technical answer derived from the retrieved content, ALONGSIDE the ranked_ids. The act of writing the answer should force opus to actually engage with what it retrieved — a document that doesn't help answer the question shouldn't be in the top-10, even if it surface-matches.
+
+**Harness change.** Extended the JSON output schema to accept an optional \`answer\` string in addition to \`ranked_ids\`. The eval harness reads ranked_ids for scoring (unchanged) and persists \`answer\` in the per-query result JSON for inspection. The schema and the persistence stay in place even with the prompt reverted — they're useful infrastructure for future variants.
+
+**Prompt change.** Replaced the final "Your answer must be ONLY a JSON array" instruction with a "FINAL OUTPUT — answer the question, then list the 10 most relevant document IDs" block. Output: \`{"answer": "<3-5 sentences citing specific APIs from retrieved docs>", "ranked_ids": [...]}\`.
+
+**Result vs prior opus + specialized (117 queries, paired):**
+
+| Metric | Before | search-then-answer | Δ | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.476 | 0.479 | +0.003 | 0.15 | 0.88 | 28/26 | 0.89 |
+| Retrieval recall | 0.647 | 0.629 | -0.018 | -0.73 | 0.47 | 15/19 | 0.61 |
+| Ranking recall | 0.536 | 0.554 | +0.018 | 0.74 | 0.46 | 19/12 | 0.28 |
+
+**All within noise.** Answer text was produced on 117/117 queries (avg 933 chars). Sample answers are technically high-quality (e.g. correctly identifies Snowflake's UNPIVOT for a melt-equivalent question). But the score doesn't move.
+
+**Decision: non-viable, reverted.**
+
+**Pattern across THREE consecutive stackoverflow prompt experiments.**
+
+| Variant | nDCG Δ | retrieval Δ | ranking Δ |
+|---|---:|---:|---:|
+| grep-encourage | +0.005 | -0.017 | +0.025 |
+| answer-first | -0.005 | -0.004 | +0.008 |
+| search-then-answer | +0.003 | -0.018 | +0.018 |
+
+Identical shape across all three: small ranking gain, small retrieval loss, ~zero nDCG. Different prompt mechanisms (grep targeting, pre-search commitment, post-search synthesis) produce identical net-zero outcomes. **Stackoverflow's prompt-side is exhausted** — retrieval recall sits at 0.63-0.65 regardless of strategy, and the answer-engagement mechanism only moves docs around within the already-retrieved set.
+
+Real path forward for stackoverflow: H7-A2 sketches (proven recipe), OR an MCP-side change (soft-grep, rank-boost). Both are corpus-side / infrastructure-side interventions.
+
+**Files.** `src/memory.ts` `buildPromptBrightStackoverflow` FINAL OUTPUT section (added then reverted). `src/evaluate-bright.ts` JSON_SCHEMA + ClaudeResult.answer + result-record answer (kept — infrastructure for future variants). Result JSON kept.
+
+---
+
 ## Best-of summary across all 12 BRIGHT domains (as of 2026-05-15)
 
 Mean nDCG@10 = **0.556** across 12 domains (vs prior haiku mean 0.347 = +0.209 / +60%; vs sonnet-max-only mean 0.452 = +0.104 / +23%).
