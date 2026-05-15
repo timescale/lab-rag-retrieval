@@ -2044,6 +2044,37 @@ All three metrics within noise (all p > 0.31). Slight retrieval-recall regressio
 
 ---
 
+## stackoverflow answer-first prompt (2026-05-15) — non-viable, reverted
+
+**Hypothesis.** After the grep-encouragement experiment showed prompt mechanics can change opus's behavior but not move the score, try the inverse approach: force opus to COMMIT to specific APIs before searching. The prior experimental log warns "answer-forcing" was an anti-pattern on haiku (-0.040 because it stole output-token budget from tool calls). On opus, output budget is much higher; the cost-balance may flip.
+
+**Prompt change.** Added a "STEP 0 — ANSWER THE QUESTION FIRST" section to `buildPromptBrightStackoverflow`. Opus must write out the canonical APIs/methods/dunders that solve the problem BEFORE any tool call, with three stated purposes: (a) drives search vocabulary, (b) names grep targets, (c) provides a checklist for ranking. The committed APIs then drive the search phase.
+
+**Mechanically the prompt change had some effect.**
+- Avg tool calls: 9.0 → 8.0 — opus's searches got more focused (one fewer exploration call per query).
+- Grep usage: dropped back to 0.6% — opus didn't use grep after committing to an answer (used semantic+fulltext only).
+- Subjectively, when looking at the recorded tool-call args, the first 1-2 semantic queries are visibly more API-specific than before.
+
+**But the score didn't move.**
+
+| Metric | Before (opus + spec) | Answer-first | Δ | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.476 | 0.471 | -0.005 | -0.27 | 0.788 | 32/30 | 0.899 |
+| Retrieval recall | 0.647 | 0.643 | -0.004 | -0.14 | 0.892 | 20/24 | 0.652 |
+| Ranking recall | 0.536 | 0.544 | +0.008 | 0.29 | 0.769 | 19/17 | 0.868 |
+
+All within noise (all p > 0.65). The answer-first commit produces tactically tighter searches but doesn't change which gold gets found.
+
+**Decision: non-viable, reverted.**
+
+**Pattern across two consecutive stackoverflow prompt experiments.** Both grep-encouragement (commit cab275e) and answer-first (this) successfully changed opus's search behavior but didn't move retrieval recall, which sits stubbornly at ~0.64 regardless of prompt strategy. **Stackoverflow's bottleneck is corpus-side, not prompt-side.** Conclusion: further prompt iteration on stackoverflow is unlikely to help. The path forward is either:
+- H7-A2 sketches on stackoverflow (the recipe that worked on robotics + aops): generate per-doc sketches bridging StackOverflow-symptom vocabulary ↔ API-reference vocabulary, index BM25 + HNSW, fuse via 4-way RRF.
+- An MCP-side soft-grep / rank-boost mechanism (separate experiment).
+
+**Files.** `src/memory.ts` `buildPromptBrightStackoverflow` STEP 0 section (added then reverted). Result JSON kept.
+
+---
+
 ## Best-of summary across all 12 BRIGHT domains (as of 2026-05-15)
 
 Mean nDCG@10 = **0.556** across 12 domains (vs prior haiku mean 0.347 = +0.209 / +60%; vs sonnet-max-only mean 0.452 = +0.104 / +23%).
