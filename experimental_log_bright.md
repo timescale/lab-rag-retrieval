@@ -2009,6 +2009,41 @@ The new eval harness loudness (added in the previous commit) earned its keep her
 
 ---
 
+## stackoverflow grep-encouragement (2026-05-15) — non-viable, reverted
+
+**Hypothesis.** Background discovery: opus across all Wikipedia-style domains was using grep ~3-6% of tool calls, but **84-96% of those grep calls returned zero documents**. Opus was grepping for cluster directory slugs (e.g. `pytorch_torch_tensor_functions`, `printmoney_inflation`) — but our grep is `content ~* $1`, matching against body text where those URL-style slugs don't appear. So grep was effectively dead in the agent's hands.
+
+Hypothesis: opus's instinct to filter by canonical name is correct; we just need to redirect the grep targets from cluster slugs (which don't work) to canonical content-bearing identifiers (function names, class names, method names) that DO appear verbatim in API-reference docs. Stackoverflow is the best test case: most grep-fixable failing queries (33/117 = 28%), still-significant headroom (current best 0.476, only +0.047 not sig vs sonnet), and no sketch infrastructure to confound the experiment.
+
+**Prompt change.** Added a `GREP — USE IT for canonical API names` section to `buildPromptBrightStackoverflow` with:
+- GOOD grep targets (function/method/class names that appear verbatim in reference docs: `pd\\.merge`, `useState`, `ChatOpenAI`, `__setattr__`, `DBMS_LOB`).
+- BAD grep targets (cluster slugs, generic words, tutorial phrasing).
+- Self-correction: "If your grep returns 0 docs in the first call, drop it for the next call."
+- Regex escaping reminders for metacharacters.
+
+**Mechanically the prompt change worked.**
+- Grep usage: ~4% → **16.2% of tool calls** (4× increase).
+- Useful-grep rate: ~14% → **87%** (150/173 grep calls returned >0 docs, up from previously most calls returning 0).
+- The agent correctly shifted from grepping cluster slugs to grepping canonical content terms.
+
+**But the score didn't move.**
+
+| Metric | Before grep (opus + spec) | With grep-encouragement | Δ | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.476 | 0.481 | +0.005 | 0.28 | 0.78 | 31/28 | 0.795 |
+| Retrieval recall | 0.647 | 0.631 | -0.017 | -0.70 | 0.48 | 18/24 | 0.441 |
+| Ranking recall | 0.536 | 0.561 | +0.025 | 1.01 | 0.31 | 19/15 | 0.608 |
+
+All three metrics within noise (all p > 0.31). Slight retrieval-recall regression suggests grep's AND-filter is excluding correct-but-different-vocab docs at roughly the same rate that on-target grep helps. Slight ranking gain doesn't overcome the retrieval loss.
+
+**Decision: non-viable, reverted.** The mechanism works (the agent uses grep more effectively and grep calls return real docs), but as an AND-filter on BM25+semantic results, on-target grep just confirms what BM25+semantic already found. The retrieval gain from filtering tutorials out is offset by the retrieval loss from excluding correct chunks that phrase things differently. Net effect: zero.
+
+**Pattern uncovered.** Pure prompt-side grep-encouragement is a dead-end. For this approach to help, grep would need to be a SOFT signal (boost rank rather than AND-filter), OR be applied selectively only when BM25+semantic confidence is low (a per-call decision the agent can't easily make). Either would require an MCP-side change (separate experiment).
+
+**Files.** `src/memory.ts` `buildPromptBrightStackoverflow` (added then reverted). Result JSON kept for inspection.
+
+---
+
 ## Best-of summary across all 12 BRIGHT domains (as of 2026-05-15)
 
 Mean nDCG@10 = **0.556** across 12 domains (vs prior haiku mean 0.347 = +0.209 / +60%; vs sonnet-max-only mean 0.452 = +0.104 / +23%).
