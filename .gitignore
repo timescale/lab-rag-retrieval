@@ -16,4 +16,5 @@ data/embedding_cache/
 data/tag_cache/
 data/sketch_cache_robotics/
 data/sketch_cache_robotics_v2/
+data/sketch_cache_stackoverflow/
 results/eval-*.json
