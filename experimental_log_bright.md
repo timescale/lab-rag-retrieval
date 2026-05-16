@@ -2111,6 +2111,36 @@ Real path forward for stackoverflow: H7-A2 sketches (proven recipe), OR an MCP-s
 
 ---
 
+## stackoverflow with minimal system prompt (no Claude Code wrapper) (2026-05-15) — hypothesis falsified, reverted
+
+**Hypothesis.** After three prompt-side stackoverflow experiments produced identical near-zero outcomes (grep-encourage, answer-first, search-then-answer), the natural next question: is **Claude Code's system prompt itself** the bottleneck? Claude Code injects a substantial default system prompt (50+ tools listed, agent/CLI framing, coding guidelines, project context, CLAUDE.md content, etc.). Maybe that scaffolding is biasing opus toward Claude-Code-task behaviors and away from pure retrieval.
+
+**Setup.** Discovered `claude -p --system-prompt <text>` overrides the default. Tested two variants:
+1. `--system-prompt ""` (empty) — opus immediately abandoned tool use, answered from training, and hallucinated plausible-looking doc IDs (\`snowflake_sql/unpivot.txt\` looked right but didn't exist; gold was \`snowflake_docs/flatten_*.txt\`). Average tool calls dropped to 1.0. Total failure of the agent loop.
+2. Minimal system prompt that matches the SDK's documented "minimal default" — just enough to keep tool-use behavior: \`"You are an AI assistant with access to tools. Use the available tools as needed to complete the task described in the user message. When the task is complete, return your final answer."\`
+
+**Eval harness change (KEPT).** Added \`--system-prompt <text>\` and \`--empty-system-prompt\` flags to \`src/evaluate-bright.ts\`. Threaded through \`askClaudeOnce\` and the main call site. Useful for any future system-prompt-override experiment without re-wiring.
+
+**Result vs Claude Code default (117 queries, paired):**
+
+| Metric | CC default | Min sys prompt | Δ | t | p_t | sign(+/-) | p_sign |
+|--------|---:|---:|---:|---:|---:|---:|---:|
+| nDCG@10 | 0.476 | 0.460 | -0.016 | -0.77 | 0.44 | 32/29 | 0.80 |
+| Retrieval recall | 0.647 | 0.615 | **-0.033** | -1.27 | 0.20 | **11/23** | **0.058** ⚠ |
+| Ranking recall | 0.536 | 0.535 | -0.001 | -0.03 | 0.97 | 16/15 | 1.00 |
+
+**Hypothesis falsified.** Minimal system prompt slightly REGRESSED retrieval recall (sign-test p=0.058, on the edge of significance, 11 queries up vs 23 down). nDCG and ranking unchanged. Avg tool calls dropped 9.0 → 8.75 — opus explored slightly less without the Claude Code wrapper's "be thorough" framing.
+
+**Two useful conclusions:**
+1. **The Claude Code system prompt is doing real work, not just bloat.** It provides agent scaffolding ("be thorough", "explore multiple angles", "use tools to gather information") that genuinely helps retrieval. Stripping it down to "use tools as needed" measurably loses retrieval recall.
+2. **Stackoverflow's ceiling at ~0.476 is real and corpus-side.** Four consecutive experiments (3 prompt variants + 1 system-prompt-override) all failed to move it. The path forward is H7-A2 sketches or MCP-side changes — there is no remaining agent-side lever.
+
+**Cost saved:** no reason to switch from \`claude -p\` to the Anthropic SDK directly for these experiments. The "Claude Code is the limit" hypothesis was wrong; the wrapper helps.
+
+**Files.** `src/evaluate-bright.ts`: added `--system-prompt` / `--empty-system-prompt` flags (KEPT for future use). Result JSON kept.
+
+---
+
 ## Best-of summary across all 12 BRIGHT domains (as of 2026-05-15)
 
 Mean nDCG@10 = **0.556** across 12 domains (vs prior haiku mean 0.347 = +0.209 / +60%; vs sonnet-max-only mean 0.452 = +0.104 / +23%).

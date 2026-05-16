@@ -95,3 +95,6 @@
 {"timestamp":"2026-05-15T04:53:59.366Z","domain":"stackoverflow","ndcg10":0.4815,"retrievalRecall":0.6309,"rankingRecall":0.5605,"queries":117,"description":"stackoverflow opus max + specialized prompt + grep-encouragement (canonical API names)"}
 {"timestamp":"2026-05-15T06:06:19.279Z","domain":"stackoverflow","ndcg10":0.4711,"retrievalRecall":0.6432,"rankingRecall":0.5436,"queries":117,"description":"stackoverflow opus max + answer-first prompt (commit to specific APIs before searching)"}
 {"timestamp":"2026-05-15T16:01:03.763Z","domain":"stackoverflow","ndcg10":0.4792,"retrievalRecall":0.629,"rankingRecall":0.5542,"queries":117,"description":"stackoverflow opus max + search-then-answer (require answer text from retrieved content alongside ranked_ids)"}
+{"timestamp":"2026-05-15T22:44:54.194Z","domain":"stackoverflow","ndcg10":0,"retrievalRecall":0,"rankingRecall":0,"queries":2,"description":"smoke test empty system prompt"}
+{"timestamp":"2026-05-15T22:52:42.528Z","domain":"stackoverflow","ndcg10":0.2133,"retrievalRecall":0.4444,"rankingRecall":0.2778,"queries":3,"description":"smoke minimal sys prompt"}
+{"timestamp":"2026-05-16T00:10:13.715Z","domain":"stackoverflow","ndcg10":0.4604,"retrievalRecall":0.6148,"rankingRecall":0.5351,"queries":117,"description":"stackoverflow opus max + specialized prompt + minimal system prompt (no Claude Code wrapper)"}

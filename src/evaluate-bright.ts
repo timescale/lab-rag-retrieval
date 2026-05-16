@@ -29,6 +29,9 @@ function parseArgs() {
   let reason = false;
   let reasonModel = "";
   let effort = "max"; // default for this harness; overridable per run
+  // overrideSystemPrompt: when set, passed to claude -p as --system-prompt,
+  // replacing Claude Code's default. Empty string means "no system prompt".
+  let overrideSystemPrompt: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--samples" && args[i + 1]) {
@@ -52,10 +55,15 @@ function parseArgs() {
       reasonModel = args[i + 1]!;
       reason = true;
       i++;
+    } else if (args[i] === "--system-prompt" && args[i + 1] !== undefined) {
+      overrideSystemPrompt = args[i + 1]!;
+      i++;
+    } else if (args[i] === "--empty-system-prompt") {
+      overrideSystemPrompt = "";
     }
   }
 
-  return { samples, domain, description, model, effort, reason, reasonModel: reasonModel || model };
+  return { samples, domain, description, model, effort, reason, reasonModel: reasonModel || model, overrideSystemPrompt };
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +118,7 @@ interface ClaudeResult {
   failReason?: string;
 }
 
-async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, effort: string): Promise<ClaudeResult> {
+async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, effort: string, overrideSystemPrompt?: string): Promise<ClaudeResult> {
   const args = [
     "claude", "-p", prompt,
     "--setting-sources", "project",
@@ -120,6 +128,9 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, e
     "--mcp-config", mcpConfig, "--strict-mcp-config",
     "--tools", MCP_TOOLS, "--allowedTools", MCP_TOOLS,
   ];
+  if (overrideSystemPrompt !== undefined) {
+    args.push("--system-prompt", overrideSystemPrompt);
+  }
   const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
 
   const timeout = setTimeout(() => proc.kill(), TIMEOUT_MS);
@@ -193,11 +204,11 @@ async function askClaudeOnce(prompt: string, mcpConfig: string, model: string, e
   }
 }
 
-async function askClaude(prompt: string, mcpConfig: string, model: string, effort: string): Promise<ClaudeResult> {
+async function askClaude(prompt: string, mcpConfig: string, model: string, effort: string, overrideSystemPrompt?: string): Promise<ClaudeResult> {
   let lastErr = "";
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await askClaudeOnce(prompt, mcpConfig, model, effort);
+      return await askClaudeOnce(prompt, mcpConfig, model, effort, overrideSystemPrompt);
     } catch (e: any) {
       lastErr = e.message?.slice(0, 300) ?? "unknown";
       if (attempt < MAX_RETRIES) {
@@ -268,7 +279,7 @@ async function reasonAboutQuery(query: string, model: string, effort: string): P
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const { samples: maxSamples, domain, description, model, effort, reason, reasonModel } = parseArgs();
+  const { samples: maxSamples, domain, description, model, effort, reason, reasonModel, overrideSystemPrompt } = parseArgs();
 
   if (!domain) {
     console.error("--domain is required. E.g.: bun run eval:bright -- --domain pony");
@@ -299,6 +310,9 @@ async function main() {
   }
   console.log(`Corpus: ${memRow!.count} documents in ${tableName}`);
   console.log(`Model: ${model}, effort: ${effort}`);
+  if (overrideSystemPrompt !== undefined) {
+    console.log(`System prompt OVERRIDDEN: ${overrideSystemPrompt.length === 0 ? "<empty>" : JSON.stringify(overrideSystemPrompt.slice(0, 120)) + (overrideSystemPrompt.length > 120 ? "..." : "")}`);
+  }
   if (reason) console.log(`Reasoning pre-pass: enabled (model=${reasonModel})`);
   console.log();
   await sql.end();
@@ -338,7 +352,7 @@ async function main() {
             writeFileSync(excludedPath, realExcluded.join("\n"));
           }
           const perQueryMcpConfig = mcpConfigFor(tableName, domain, excludedPath);
-          const result = await askClaude(prompt, perQueryMcpConfig, model, effort);
+          const result = await askClaude(prompt, perQueryMcpConfig, model, effort, overrideSystemPrompt);
 
           // Belt-and-braces: still strip excluded from final ranking output in case
           // the agent echoes an excluded id it had seen before exclusion was in effect.
