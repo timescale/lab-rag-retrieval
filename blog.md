@@ -242,23 +242,23 @@ These reverts are part of the same methodology as the wins. The loop's value isn
 
 ### Aggregate Results
 
-Best per-domain results across all 12 BRIGHT domains, with paired stats against the sonnet-max-only baseline:
+Best per-domain results across all 12 BRIGHT domains:
 
-| Domain | Best nDCG@10 | Config | Δ vs sonnet baseline |
-|--------|---:|---|---:|
-| biology | **0.803** | opus + Wikipedia-concept prompt | +0.137 (sig) |
-| psychology | 0.654 | opus + Wikipedia-concept prompt | +0.084 (sig) |
-| theoremqa_questions | 0.614 | sonnet max + math prompt | — |
-| pony | 0.576 | opus + foundational-docs prompt | +0.247 (sig) |
-| sustainable_living | 0.560 | opus + Wikipedia-concept prompt | +0.072 (sig) |
-| earth_science | 0.551 | opus + Wikipedia-concept prompt | +0.092 (sig) |
-| leetcode | 0.522 | opus + foundational-docs prompt | +0.152 (sig) |
-| robotics | 0.512 | opus + specialized + concept sketches | +0.094 (retrieval recall sig) |
-| theoremqa_theorems | 0.507 | opus + specialized | wash, adopted for model consistency |
-| economics | 0.483 | opus + canonical-source prompt | +0.027 (not sig) |
-| stackoverflow | 0.476 | opus + foundational-docs prompt | +0.047 (not sig) |
-| aops | 0.369 | sonnet xhigh + concept sketches | — |
-| **Mean across 12 domains** | **0.556** | | **+0.104 vs sonnet-max-only** |
+| Domain | nDCG@10 | Config |
+|--------|---:|---|
+| biology | **0.803** | opus + Wikipedia-concept prompt |
+| psychology | 0.654 | opus + Wikipedia-concept prompt |
+| theoremqa_questions | 0.614 | sonnet max + math prompt |
+| pony | 0.576 | opus + foundational-docs prompt |
+| sustainable_living | 0.560 | opus + Wikipedia-concept prompt |
+| earth_science | 0.551 | opus + Wikipedia-concept prompt |
+| leetcode | 0.522 | opus + foundational-docs prompt |
+| robotics | 0.512 | opus + specialized + concept sketches |
+| theoremqa_theorems | 0.507 | opus + specialized |
+| economics | 0.483 | opus + canonical-source prompt |
+| stackoverflow | 0.476 | opus + foundational-docs prompt |
+| aops | 0.369 | sonnet xhigh + concept sketches |
+| **Mean across 12 domains** | **0.556** | |
 
 The original BRIGHT paper reports nDCG@10 in the 0.15–0.30 range for standard retrieval pipelines (BM25, dense retrievers, BGE + query reformulation) across the same 12 domains, and roughly 0.30–0.40 for fine-tuned reasoning-aware retrievers. Reaching 0.556 mean with no retriever fine-tuning, no specialized embedding model, no training data — just per-domain prompts and concept sketches discovered by the loop — was the second of the two surprising findings.
 
