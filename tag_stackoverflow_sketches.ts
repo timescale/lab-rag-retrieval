@@ -12,7 +12,21 @@ import { createFileCache } from "./src/file-cache.ts";
 const PROMPT_VERSION = "v1";
 const cache = createFileCache<any>("data/sketch_cache_stackoverflow");
 
-const CONCURRENCY = 20;
+// Concurrency tuning history:
+// - 20 → 12 → 4 → 2 on sonnet, all hit rate limits on the current
+//   account (which has tighter RPM caps than the account that ran
+//   robotics v2 sketches successfully at concurrency 20).
+// - Switched to haiku for this domain: haiku has much higher RPM caps
+//   and is the model used by both aops H7 sketches and robotics v1
+//   sketches (both produced significant retrieval-recall wins). Back to
+//   concurrency 16 on haiku.
+const CONCURRENCY = 16;
+const WORKER_STARTUP_STAGGER_MS = 500;
+
+// Sustained-throttle abort: if this many consecutive transient 429s
+// land, exit so wrapper can sleep ~1h. Kept as a safety net even on
+// haiku in case caps tighten in the future.
+const SUSTAINED_THROTTLE_THRESHOLD = 30;
 const BATCH_COMMIT_EVERY = 200;
 const TIMEOUT_MS = 180_000;
 
@@ -92,21 +106,84 @@ interface Sketched {
   sketch: string;
 }
 
-async function generate(docId: string, content: string): Promise<Sketched> {
+// Two distinct error shapes:
+//   UsageCapError = anthropic 5-hour usage cap (fatal, sleep ~1h, retry)
+//   TransientRateLimitError = server 429 / temporary throttle (per-query
+//     retry inside generate(), only escalate if many consecutive)
+class UsageCapError extends Error {}
+class TransientRateLimitError extends Error {}
+
+// 5-hour usage cap signature: phrasing about "usage limit" / "limit reached"
+// / "5-hour" / "overage". Distinct from a server 429 throttle.
+function looksLikeUsageCap(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    t.includes("5-hour") ||
+    t.includes("usage limit") ||
+    t.includes("usage cap") ||
+    t.includes("daily limit") ||
+    t.includes("monthly limit") ||
+    t.includes("overage") ||
+    t.includes("plan limit") ||
+    t.includes("quota exceeded") ||
+    (t.includes("limit reached") && !t.includes("temporarily"))
+  );
+}
+
+// Server-side temporary throttle (HTTP 429, "temporarily limiting", etc).
+// Clears in seconds-to-minutes; should be retried per-query, not aborted.
+function looksLikeTransient429(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    t.includes("temporarily limiting") ||
+    t.includes("api_error_status\":429") ||
+    t.includes("\"status\":429") ||
+    t.includes("429 too many requests") ||
+    t.includes("rate limit") ||
+    t.includes("rate_limit") ||
+    t.includes("retry") && t.includes("429")
+  );
+}
+
+async function generateOnce(docId: string, content: string): Promise<Sketched> {
   const proc = Bun.spawn([
     "claude", "-p", PROMPT(docId, content),
     "--setting-sources", "project",
-    "--model", "sonnet",
+    "--model", "haiku",
     "--output-format", "json",
     "--json-schema", SCHEMA,
   ], { stdout: "pipe", stderr: "pipe" });
   const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
-  const stdout = await new Response(proc.stdout).text();
-  await proc.exited;
+  const stdoutP = new Response(proc.stdout).text();
+  const stderrP = new Response(proc.stderr).text();
+  const [stdout, stderr] = await Promise.all([stdoutP, stderrP]);
+  const exitCode = await proc.exited;
   clearTimeout(timer);
+
+  // Only pattern-match for rate-limit signatures on ERROR paths.
+  // Previously checked stdout+stderr unconditionally — false-positived
+  // when the model's successful sketch text mentioned words like "plan
+  // limit" or "overage" (e.g. when summarizing a doc ABOUT rate limiting).
+  // Stderr is rate-limit-relevant; stdout is only checked when is_error=true.
+  if (stderr && looksLikeUsageCap(stderr)) {
+    throw new UsageCapError(`usage-cap (stderr): ${stderr.slice(0, 200)}`);
+  }
+  if (exitCode !== 0) {
+    const msg = (stderr || stdout).slice(0, 500);
+    if (looksLikeTransient429(msg)) throw new TransientRateLimitError(`429: ${msg.slice(0, 150)}`);
+    throw new Error(`claude exit ${exitCode}: ${msg.slice(0, 200)}`);
+  }
+
   try {
     const evts = JSON.parse(stdout);
     for (const evt of Array.isArray(evts) ? evts : [evts]) {
+      // result event with is_error=true and api_error_status=429 is the
+      // typical transient throttle path even when exit code was 0.
+      if (evt.type === "result" && evt.is_error === true) {
+        const text = JSON.stringify(evt).slice(0, 1000);
+        if (looksLikeUsageCap(text)) throw new UsageCapError(`usage-cap in result: ${text.slice(0, 200)}`);
+        if (looksLikeTransient429(text)) throw new TransientRateLimitError(`429 in result: ${text.slice(0, 150)}`);
+      }
       if (evt.type === "result" && evt.structured_output) {
         const out = evt.structured_output as any;
         return {
@@ -121,8 +198,34 @@ async function generate(docId: string, content: string): Promise<Sketched> {
     }
     throw new Error("no structured_output");
   } catch (e: any) {
-    throw new Error(e.message?.slice(0, 80) || "parse error");
+    if (e instanceof UsageCapError) throw e;
+    if (e instanceof TransientRateLimitError) throw e;
+    throw new Error(e.message?.slice(0, 200) || "parse error");
   }
+}
+
+// Per-query retry on transient 429: short exponential backoff. Fatal usage
+// cap or 4 consecutive 429s on the same doc throws back to the worker.
+async function generate(docId: string, content: string): Promise<Sketched> {
+  let lastErr: Error | undefined;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      return await generateOnce(docId, content);
+    } catch (e: any) {
+      if (e instanceof UsageCapError) throw e; // fatal, escalate immediately
+      if (e instanceof TransientRateLimitError) {
+        lastErr = e;
+        if (attempt < 4) {
+          const sleepMs = 5000 * attempt + Math.floor(Math.random() * 2000);
+          await new Promise(r => setTimeout(r, sleepMs));
+          continue;
+        }
+        throw e; // 4 consecutive 429s → give up on this doc, treated as transient by worker
+      }
+      throw e; // other error → no retry
+    }
+  }
+  throw lastErr ?? new Error("unreachable");
 }
 
 async function main() {
@@ -139,6 +242,15 @@ async function main() {
   const t0 = Date.now();
   let done = 0, errs = 0, lastLog = 0;
   let pendingUpdates: Array<{ id: string; data: Sketched }> = [];
+  // Set when ANY worker encounters a rate-limit error. All workers check
+  // this on each iteration and exit so the wrapper script can sleep+restart.
+  let rateLimitedAbort = false;
+  let rateLimitMessage = "";
+  // Tracks consecutive transient 429s across all workers; reset on any
+  // successful tag (or cache hit). When it crosses
+  // SUSTAINED_THROTTLE_THRESHOLD we abort the whole tagger so the wrapper
+  // can sleep ~1h for the rolling-window quota to clear.
+  let consecutive429 = 0;
 
   async function commitBatch() {
     if (pendingUpdates.length === 0) return;
@@ -156,34 +268,73 @@ async function main() {
   const PAGE = 2000;
   async function* rowStream() {
     while (true) {
+      if (rateLimitedAbort) return;
       const rows = await sql.unsafe(`
         SELECT id, content FROM bright_stackoverflow
         WHERE NOT (coalesce(meta, '{}'::jsonb) ? 'sketch_v2')
         ORDER BY id LIMIT $1
       `, [PAGE]) as any[];
       if (rows.length === 0) return;
-      for (const r of rows) yield r;
+      for (const r of rows) {
+        if (rateLimitedAbort) return;
+        yield r;
+      }
     }
   }
 
   const iter = rowStream()[Symbol.asyncIterator]();
   async function worker() {
     while (true) {
+      if (rateLimitedAbort) return;
       const { value: r, done: d } = await iter.next();
       if (d) return;
       const key = cache.key(PROMPT_VERSION, r.id, r.content);
       let data = cache.get(key) as Sketched | null;
+      let isFailure = false;
       if (data === null) {
         try {
           data = await generate(r.id, r.content);
           cache.set(key, data);
+          consecutive429 = 0; // success — reset throttle streak
         } catch (e: any) {
+          isFailure = true;
           errs++;
-          data = { library: "", api: "", purpose: "", canonical_terms: "", alternatives: "", sketch: "" };
+          if (e instanceof UsageCapError) {
+            // Fatal: signal all workers to stop. Don't write this row to DB.
+            if (!rateLimitedAbort) {
+              rateLimitedAbort = true;
+              rateLimitMessage = e.message;
+              console.error(`\n!!! USAGE CAP HIT: ${e.message.slice(0, 200)}`);
+              console.error(`!!! Aborting tagger. Wrapper should sleep ~1h and restart.`);
+            }
+            return;
+          }
+          if (e instanceof TransientRateLimitError) {
+            consecutive429++;
+            if (consecutive429 >= SUSTAINED_THROTTLE_THRESHOLD && !rateLimitedAbort) {
+              rateLimitedAbort = true;
+              rateLimitMessage = `sustained throttle: ${consecutive429} consecutive 429s`;
+              console.error(`\n!!! SUSTAINED THROTTLE: ${consecutive429} consecutive 429s. Aborting tagger; wrapper should sleep ~1h.`);
+              return;
+            }
+          } else {
+            // Other transient: reset counter (a single non-429 failure isn't a throttle signal)
+            consecutive429 = 0;
+          }
+          if (errs % 50 === 1) {
+            console.error(`  transient err on ${r.id}: ${e.message?.slice(0, 120)}`);
+          }
         }
+      } else {
+        // Cache hit — counts as productive, reset streak
+        consecutive429 = 0;
       }
-      pendingUpdates.push({ id: r.id, data });
-      if (pendingUpdates.length >= BATCH_COMMIT_EVERY) await commitBatch();
+      // Only persist the row when we have a real sketch (success or
+      // cache-hit). Transient failures leave the row in the pool for retry.
+      if (!isFailure && data) {
+        pendingUpdates.push({ id: r.id, data });
+        if (pendingUpdates.length >= BATCH_COMMIT_EVERY) await commitBatch();
+      }
       done++;
       if (done - lastLog >= 200) {
         lastLog = done;
@@ -194,12 +345,27 @@ async function main() {
     }
   }
 
-  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+  // Stagger worker startup
+  const workers: Promise<void>[] = [];
+  for (let i = 0; i < CONCURRENCY; i++) {
+    workers.push((async () => {
+      if (i > 0) await new Promise(r => setTimeout(r, i * WORKER_STARTUP_STAGGER_MS));
+      return worker();
+    })());
+  }
+  await Promise.all(workers);
   await commitBatch();
 
   const elapsed = (Date.now() - t0) / 1000;
   console.log(`done: ${done} sketched in ${(elapsed/60).toFixed(1)}min, ${errs} errors`);
   await sql.end({ timeout: 5 });
+
+  // Exit code: 2 if we aborted due to rate limit (wrapper should sleep + retry),
+  // 0 if we processed all rows or hit only transient errors, 1 otherwise.
+  if (rateLimitedAbort) {
+    console.error(`exiting with code 2 (rate-limit) — wrapper should sleep ~1h and restart`);
+    process.exit(2);
+  }
   process.exit(0);
 }
 
