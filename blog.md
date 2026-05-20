@@ -113,7 +113,7 @@ For context, here's how this compares to results reported in [PAR-RAG](https://a
 
 A dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning — beats every system in the table. The caveat: we use Claude Haiku (a newer model than Qwen-Plus used in PAR-RAG), so some of the gap likely comes from model capability. But the simplicity gap is real — these complex pipelines may be compensating for limitations of older models that newer ones handle natively.
 
-### Dataset Quality and the Audited Estimate
+### Dataset Quality and the Audited Accuracy Estimate
 
 The 500-sample number above is the right comparison against PAR-RAG, but it's not the right answer to "how well does the system actually work." MuSiQue has a non-trivial rate of mechanical-chain dataset errors that score the model wrong even when its reasoning is correct.
 
