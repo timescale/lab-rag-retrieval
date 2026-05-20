@@ -1,4 +1,4 @@
-# Achieving SOTA on the Hardest RAG Benchmarks With a Postgres Table and an Autoresearch Loop
+# Top-Tier Results on Hard RAG Benchmarks With a Postgres Table and an Autoresearch Loop
 
 ## The Surprising Finding
 
@@ -17,7 +17,7 @@ The headline numbers:
 | Benchmark | Our result | Notes |
 |---|---:|---|
 | MuSiQue (100 questions) | **0.440 EM / 0.600 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable split |
-| BRIGHT (12 domains, mean nDCG@10) | **0.556** | vs. original-paper baselines in the 0.15–0.30 range |
+| BRIGHT (12 domains, mean nDCG@10) | **0.556** | **Top 3 on the [public leaderboard](https://brightbenchmark.github.io/)** — the only top-tier entry without a fine-tuned retriever |
 
 The surprising part isn't that simple architectures can compete — it's that *disciplined methodology beats architectural innovation* on these benchmarks. The autoresearch loop produced two small, targeted classes of optimization for BRIGHT (per-domain prompts and per-doc concept sketches) and explicitly *prevented* us from adding complexity on MuSiQue, where every "improvement" we tried regressed.
 
@@ -260,7 +260,23 @@ Best per-domain results across all 12 BRIGHT domains:
 | aops | 0.369 | sonnet xhigh + concept sketches |
 | **Mean across 12 domains** | **0.556** | |
 
-The original BRIGHT paper reports nDCG@10 in the 0.15–0.30 range for standard retrieval pipelines (BM25, dense retrievers, BGE + query reformulation) across the same 12 domains, and roughly 0.30–0.40 for fine-tuned reasoning-aware retrievers. Reaching 0.556 mean with no retriever fine-tuning, no specialized embedding model, no training data — just per-domain prompts and concept sketches discovered by the loop — was the second of the two surprising findings.
+For context, here's where this lands on the public [BRIGHT leaderboard](https://brightbenchmark.github.io/) (Short Document track, nDCG@10 mean across 12 domains, as of mid-May 2026):
+
+| Rank | System | nDCG@10 | Approach |
+|---|---|---:|---|
+| 1 | Mira-Reasoning-Retrieval (Forward AI Labs) | 0.669 | Specialized retriever |
+| 2 | INF-X-Retriever (INF) | 0.634 | Specialized retriever |
+| **—** | **Ours: Postgres + hybrid + autoresearch loop** | **0.556** | **Off-the-shelf retrievers + agent** |
+| 3 | RakanEmbed4B (RakanLabs) | 0.524 | Specialized retriever (fine-tuned embedding) |
+| 4 | NeMo Retriever's Agentic Retrieval (NVIDIA) | 0.509 | Agentic |
+| 5 | DIVER-v3-GroupRank (Ant Group / SYSU) | 0.468 | Specialized retriever + reranker |
+| 6 | BGE-Reasoner-0928 (BAAI) | 0.464 | Reasoning-tuned retriever |
+
+Two things stand out. First, **every system at or above our score uses a specialized retriever** — Mira, INF-X, and RakanEmbed4B all fine-tune an embedding model on reasoning-intensive data. Our system uses OpenAI's general-purpose `text-embedding-3-small` and pg_textsearch BM25, both off the shelf. The only "specialization" happens at prompt and (for two domains) corpus-sketch time, both produced by the autoresearch loop.
+
+Second, against the only other agentic system on the board — NVIDIA's NeMo Retriever Agentic Retrieval at 0.509 — we're +0.047. Same general approach (agent with retrieval tools), different methodology for getting the agent to perform: NVIDIA's full retrieval stack vs our Postgres + hybrid + loop-discovered tweaks.
+
+This was the second surprising finding. The leaderboard's top tier is dominated by training-based approaches, and we sit in the middle of it with a system that has zero trained components.
 
 ## Why This Is Surprising
 
