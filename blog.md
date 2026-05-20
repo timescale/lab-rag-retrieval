@@ -4,7 +4,9 @@
 
 The RAG field has gone deep on architectural complexity. Knowledge graphs (HippoRAG), hierarchical retrieval (RAPTOR), iterative planning (PAR-RAG), self-critique (Self-RAG), specialized rerankers, fine-tuned retrievers — pick a paper from the last year and you'll find a multi-stage pipeline.
 
-Most of that complexity exists to compensate for things the model can't do on its own. Multi-hop reasoning gets pushed into a planner because the base model isn't good enough at decomposition. Vocabulary mismatch gets pushed into a knowledge graph because the base model can't bridge it. Each scaffold was a reasonable answer to a real limitation at the time. The problem is that the limitations move and the scaffolds don't — the planner built for a 2024 model is still a planner to maintain after the 2026 model decomposes natively. Complexity outlives the problem it was designed for.
+Most of that complexity exists to compensate for things the model can't do on its own. Multi-hop reasoning gets pushed into a planner because the base model isn't good enough at decomposition. Vocabulary mismatch gets pushed into a knowledge graph because the base model can't bridge it. Each scaffold was a reasonable answer to a real limitation at the time.
+
+The problem is that the limitations move and the scaffolds don't — the planner built for a 2024 model is still a planner to maintain after the 2026 model decomposes natively. Complexity outlives the problem it was designed for.
 
 We tried the inverse. On the two hardest open RAG benchmarks — **MuSiQue** (multi-hop reasoning over Wikipedia) and **BRIGHT** (reasoning-intensive retrieval across 12 domains) — we used the same minimal stack on both:
 
@@ -21,9 +23,11 @@ The headline numbers:
 | MuSiQue (500 questions) | **0.418 EM / 0.564 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable 500-sample setup; we ran Haiku, PAR-RAG ran Qwen-Plus, so this conflates model with architecture — see below |
 | BRIGHT (12 domains, mean nDCG@10) | **0.556** | Comparable to the 2nd–3rd rank tier on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only result in that tier without a fine-tuned retriever |
 
-**A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.** Today the thin stack is already competitive on quality, expensive at inference. The bet is that "today" keeps moving and the stack doesn't have to.
+> **A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.**
 
-## The Foundation
+Today the thin stack is already competitive on quality, expensive at inference. The bet is that "today" keeps moving and the stack doesn't have to.
+
+## The Stack
 
 Both benchmarks ran on the same minimal stack.
 
@@ -54,7 +58,7 @@ When the model passes both semantic and fulltext (it does ~93% of the time on Mu
 
 For MuSiQue we used Claude Haiku throughout. For BRIGHT we used Claude Opus on most domains (the reasoning-intensive corpora benefit from a larger model). Same MCP tool, same Postgres schema, same retrieval logic.
 
-## The Autoresearch Loop
+## The Loop That Says No
 
 "Stay thin" sounds easy and is hard in practice. Every failure case in the eval looks like an argument for adding something — a planner, a knowledge graph, a reranker. Some of those additions help; most don't, but you can't tell which without testing. The autoresearch loop is the testing discipline: every candidate change must earn its place against paired statistics, and everything that doesn't gets reverted with a logged reason. That's how MuSiQue produced "every improvement hurt" (five reverts) and how BRIGHT landed on two cheap configs rather than a pile of speculative additions. Inspired loosely by Karpathy's autoresearch concept, but with explicit discipline that we found mattered far more than the iteration speed:
 
@@ -111,7 +115,7 @@ For context, here's how this compares to results reported in [PAR-RAG](https://a
 | PAR-RAG | 0.33 | 0.43 | Plan-driven decomposition |
 | **Ours (Postgres + Haiku)** | **0.418** | **0.564** | Single table, hybrid search, MCP tools |
 
-A dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning — outscores every system in the table. The honest caveat: we ran Claude Haiku and PAR-RAG ran Qwen-Plus, so this number conflates model capability with architecture. We cannot cleanly separate the two from this data alone. Under the thin-stack thesis, the confound is part of the finding: each row above represents complexity designed against an older model's limitations, and a newer model handles those cases natively. A thin stack on a newer model captured most of what each pipeline was designed to provide — at a fraction of the maintenance footprint.
+A dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning — outscores every system in the table. The honest caveat: we ran Claude Haiku and PAR-RAG ran Qwen-Plus, so this number conflates model capability with architecture. We cannot cleanly separate the two from this data alone. But the confound is part of the finding: each row above represents complexity designed against an older model's limitations, and a newer model handles those cases natively. A thin stack on a newer model captured most of what each pipeline was designed to provide — at a fraction of the maintenance footprint.
 
 ### Dataset Quality and the Accuracy Estimate
 
@@ -149,7 +153,7 @@ The baseline we tested against — single-table schema, hybrid + RRF, the MCP to
 
 Every one was reverted. The model (Haiku) is surprisingly good at search out of the box. It naturally uses both semantic and fulltext together (93% of queries use both), adjusts candidate limits when needed, and falls back to grep for exact entity matching. Every attempt to "help" by adding complexity just added noise.
 
-**This is exactly the thin-stack thesis in miniature.** Every architectural addition we tried was overhead the current model didn't need. Without the loop's discipline, we would have shipped each of them, scored lower, and locked ourselves into pipeline complexity to maintain going forward. The loop's most valuable output on MuSiQue isn't a kept change — it's five reverted ones.
+**This is the thesis in miniature.** Every architectural addition we tried was overhead the current model didn't need. Without the loop's discipline, we would have shipped each of them, scored lower, and locked ourselves into pipeline complexity to maintain going forward. The loop's most valuable output on MuSiQue isn't a kept change — it's five reverted ones.
 
 ### Schema Simplicity Reduces Token Overhead
 
@@ -166,7 +170,7 @@ Stripping unused parameters reduced tokens per call — and for a model processi
 
 ### Bridge: From Retrieval to Reasoning
 
-Retrieval recall on MuSiQue stays above 80% (86.5% audited, 81.4% unaudited) — the system finds the right paragraphs most of the time. The remaining gap to perfect EM is mostly a reasoning problem, not a retrieval one.
+Retrieval recall holds above 80% at every hop depth on the audited set (0.92 / 0.84 / 0.82 on 2-, 3-, 4-hop). Accuracy falls more steeply (0.74 / 0.54 / 0.47). Even on 4-hop, the system finds the supporting paragraphs most of the time — it just can't always compose the answer. The remaining gap is mostly a reasoning problem, not a retrieval one.
 
 But what happens when **retrieval itself** is the bottleneck — when the query and the gold document use entirely different vocabulary? That's where BRIGHT comes in.
 
@@ -348,9 +352,9 @@ A specialized retriever has the opposite trajectory. Its per-token cost is alrea
 
 Plug the projected per-query cost into the crossover formula: at today's $0.65, breakeven is ~77K queries between retrains. At $0.10 in 18 months, ~500K queries. At $0.02 in 3 years, ~2.5M queries. Each model generation, more workloads move into the "agent loop wins on total cost" side of the line.
 
-This trajectory is the second half of the thin-stack bet on cost. Whether per-token prices keep compressing at the rate the last few generations suggest is a prediction, not a finding.
+This trajectory is the second half of the bet on cost. Whether per-token prices keep compressing at the rate the last few generations suggest is a prediction, not a finding.
 
-The cost is real today; the trajectory is the case for treating it as a near-term tax rather than a structural disadvantage. The next section places this alongside the quality and maintenance arguments for the thin stack.
+The cost is real today; the trajectory is the case for treating it as a near-term tax rather than a structural disadvantage.
 
 ## The Bitter Lesson Comes for RAG
 
@@ -366,7 +370,7 @@ This is Sutton's bitter lesson applied to retrieval: methods that ride model imp
 
 The optimizations the loop did adopt on BRIGHT — per-domain prompts, per-doc sketches — are explicitly the removable kind. A prompt is text. A sketch is a column. When they stop earning their keep, you delete them. None of it is architectural commitment.
 
-What's prediction vs finding here: the thin stack already being competitive on quality in 2026 is the finding. The thin stack winning on quality, maintenance, and cost over the next few model generations is the prediction. We're betting on it.
+What's prediction vs finding here: the thin stack already being competitive on quality in 2026 is the finding. Winning on quality, maintenance, and cost over the next few model generations is the prediction. We're betting on it.
 
 ## Conclusion
 
