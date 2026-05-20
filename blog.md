@@ -17,7 +17,7 @@ The headline numbers:
 | Benchmark | Our result | Notes |
 |---|---:|---|
 | MuSiQue (100 questions) | **0.440 EM / 0.600 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable split |
-| BRIGHT (12 domains, mean nDCG@10) | **0.556** | **Top 3 on the [public leaderboard](https://brightbenchmark.github.io/)** — the only top-tier entry without a fine-tuned retriever |
+| BRIGHT (12 domains, mean nDCG@10) | **0.556** | Would place 3rd on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only top-3 result without a fine-tuned retriever |
 
 The surprising part isn't that simple architectures can compete — it's that *disciplined methodology beats architectural innovation* on these benchmarks. The autoresearch loop produced two small, targeted classes of optimization for BRIGHT (per-domain prompts and per-doc concept sketches) and explicitly *prevented* us from adding complexity on MuSiQue, where every "improvement" we tried regressed.
 
@@ -27,7 +27,7 @@ The architecture is small. The methodology is what mattered.
 
 Both benchmarks ran on the same minimal stack.
 
-**Database**: A [Ghost](https://ghost.build) PostgreSQL instance. We picked Ghost for three reasons. First, a generous free tier that makes running these experiments easy and free. Second, it's one of the few hosted providers offering [pg_textsearch](https://github.com/timescale/pg_textsearch) — true BM25 scoring as a native Postgres index. Third, near-instant database forking: any experiment that needed to mutate DB state (new columns, new indexes, re-tagging) ran on a fresh fork that came up in ~1–2 minutes, kept the old DB untouched, and made revert-on-regression a matter of changing one connection string. The forking turned out to be load-bearing for the autoresearch loop described below. The entire schema is a single table with three meaningful columns:
+**Database**: A [Ghost](https://ghost.build) PostgreSQL instance. (Disclosure: this work was done by the team that builds Ghost.) We believe Ghost is best-suited for this type of work for three reasons. First, a generous free tier that makes running these experiments easy and free. Second, it's one of the few hosted providers offering [pg_textsearch](https://github.com/timescale/pg_textsearch) — true BM25 scoring as a native Postgres index. Third, near-instant database forking: any experiment that needed to mutate DB state (new columns, new indexes, re-tagging) ran on a fresh fork that came up in ~1–2 minutes, kept the old DB untouched, and made revert-on-regression a matter of changing one connection string. The forking turned out to be load-bearing for the autoresearch loop described below. The entire schema is a single table with three meaningful columns:
 
 ```sql
 CREATE TABLE corpus (
@@ -280,7 +280,7 @@ Two things stand out. First, **every system at or above our score uses a special
 
 Second, against the only other agentic system on the board — NVIDIA's NeMo Retriever Agentic Retrieval at 0.509 — we're +0.047. Same general approach (agent with retrieval tools), different methodology for getting the agent to perform: NVIDIA's full retrieval stack vs our Postgres + hybrid + loop-discovered tweaks.
 
-This was the second surprising finding. The leaderboard's top tier is dominated by training-based approaches, and we sit in the middle of it with a system that has zero trained components.
+This was the second surprising finding. The leaderboard's top tier is dominated by training-based approaches, and we sit in the middle of it with a system with no task-specific training.
 
 ## Why This Is Surprising
 
@@ -293,10 +293,6 @@ The autoresearch loop reaches a different conclusion. The complex architectures 
 3. **A disciplined search-and-test methodology** — most architectural complexity in the field comes from speculative additions. With a loop that reverts what doesn't work, the system stays simple by default and only grows where there's evidence.
 
 The optimizations the loop *did* discover for BRIGHT — per-domain prompts and concept sketches — are corpus-specific configurations, not architectural innovations. They cost a few hours of diagnostic and tagging work per corpus. Compared to building, training, and maintaining a multi-stage pipeline, they're cheap.
-
-## The Surprising Power of COPY
-
-A practical note: ingesting 139k MuSiQue paragraphs with individual INSERT statements took forever. Switching to PostgreSQL's COPY protocol made bulk loading dramatically faster, and dropping indexes before ingestion (then rebuilding after) eliminated the per-row index maintenance overhead. Same pattern on the larger BRIGHT corpora (up to 121k docs on earth_science). Worth knowing if you build anything at this scale.
 
 ## Conclusion
 
@@ -317,6 +313,6 @@ The methodology that produced the results is also small, but disciplined:
 
 The autoresearch loop validated simplicity on MuSiQue (every "improvement" we tried regressed) and discovered two corpus-specific optimization classes on BRIGHT (per-domain prompts, per-doc concept sketches) — same loop, opposite verdicts on the same foundation.
 
-The takeaway: **for hard RAG, a Postgres table and a disciplined autoresearch loop go further than another layer of architectural complexity.** The complex pipelines aren't wrong — they may be the right answer for systems that can't run the loop, or that need a fixed configuration. But if you can iterate, the foundation is enough.
+The takeaway: **on these two benchmarks, a Postgres table and a disciplined autoresearch loop competed with much more complex pipelines.** The complex pipelines aren't wrong — they may be the right answer for systems that can't run the loop, or that need a fixed configuration. But if you can iterate, the foundation is enough.
 
 The full code, experiment log, and per-domain methodology notes are available at [repo link].
