@@ -122,7 +122,7 @@ MuSiQue constructs multi-hop questions by mechanically chaining single-hop facts
 - A paragraph says "Cleveland, Ohio singer-songwriter Eric Carmen" → the expected chain resolves "Cleveland" to Cleveland, North Carolina
 - "Atlanta" is identified as Georgia's largest city → the next hop maps it to Atlanta, Michigan
 
-Deep analysis of 4-hop failures revealed several "wrong" answers that were actually more defensible than the ground truth. We documented 6 such dataset errors in our 100-question audited sample. After excluding them — same system, same prompt, same Haiku — the numbers tighten:
+Deep analysis of 4-hop failures revealed several "wrong" answers that were actually more defensible than the ground truth. We documented 6 such dataset errors in our 100-question audited sample (each with the offending paragraph, expected chain, and our reasoning recorded in [`results/dataset-errors.json`](results/dataset-errors.json)). After excluding them — same system, same prompt, same Haiku — the numbers tighten:
 
 | Hops | F1 | EM | Accuracy | Recall | n |
 |------|----|----|----------|--------|---|
