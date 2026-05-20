@@ -72,6 +72,8 @@ The methodology that produced both sets of results. Inspired loosely by Karpathy
 
 **7. Log everything.** Adopted changes, reverted changes, non-viable hypotheses. The log is the methodology's output, not just a side effect — it's how future sessions avoid re-trying ideas that already failed.
 
+One piece of infrastructure made the loop fast enough to actually run at this cadence: **cheap database forking on Ghost**. Any change that mutated DB state — adding a column, re-tagging documents, building a new BM25 index over a derived field, ingesting a new corpus — ran on a fresh fork that came up in a minute or two. If the experiment won, we promoted the fork to be the active DB and paused the old one. If it regressed, we paused the new fork and pointed `DATABASE_URL` back at the old one. No state to unwind by hand, no parallel DB instances to maintain. This kept the marginal cost of "let me try X" close to zero, which is what makes a multi-attempt loop work in practice. Without it, the corpus-side experiments on BRIGHT (sketches, new indexes, alternative tagging strategies) would have been prohibitively expensive to iterate on.
+
 The loop's job is to find the optimizations a given corpus actually needs, while preventing the natural temptation to keep adding complexity. The two benchmarks below are case studies of the loop reaching opposite verdicts on the same starting baseline.
 
 ## Case 1: MuSiQue — When the Loop Says "Stay Simple"
