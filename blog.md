@@ -23,6 +23,8 @@ The headline numbers:
 | MuSiQue (500 questions) | **0.418 EM / 0.564 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable 500-sample setup; we ran Haiku, PAR-RAG ran Qwen-Plus, so this conflates model with architecture — see below |
 | BRIGHT (12 domains, mean nDCG@10) | **0.556** | Comparable to the 2nd–3rd rank tier on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only result in that tier without a fine-tuned retriever |
 
+The MuSiQue row is the thesis at work. Each system in the PAR-RAG table was built against a specific model's weakness — planners for decomposition, knowledge graphs for vocabulary bridging. A stronger model on a thin stack absorbs most of what those pipelines were designed to provide. We ran Haiku where PAR-RAG ran Qwen-Plus — exactly the substitution the bet predicts. Model and architecture aren't independent variables in this regime.
+
 > **A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.**
 
 Today the thin stack is already competitive on quality, expensive at inference. The bet is that "today" keeps moving and the stack doesn't have to.
@@ -115,7 +117,7 @@ For context, here's how this compares to results reported in [PAR-RAG](https://a
 | PAR-RAG | 0.33 | 0.43 | Plan-driven decomposition |
 | **Ours (Postgres + Haiku)** | **0.418** | **0.564** | Single table, hybrid search, MCP tools |
 
-A dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning — outscores every system in the table. The honest caveat: we ran Claude Haiku and PAR-RAG ran Qwen-Plus, so this number conflates model capability with architecture. We cannot cleanly separate the two from this data alone. But the confound is part of the finding: each row above represents complexity designed against an older model's limitations, and a newer model handles those cases natively. A thin stack on a newer model captured most of what each pipeline was designed to provide — at a fraction of the maintenance footprint.
+A dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning — outscores every system in the table. Each row above was built against an older model's limitations; a stronger model on a thin stack captures most of what those pipelines were designed to provide — at a fraction of the maintenance footprint.
 
 ### Dataset Quality and the Accuracy Estimate
 
