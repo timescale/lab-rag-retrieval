@@ -189,6 +189,8 @@ The autoresearch loop's job on BRIGHT was to find what *did* work. It discovered
 
 ### Optimization 1: Per-Domain Failure-Mode-Specific Prompts
 
+A note on "per-domain" before the details: in any real production RAG system you're building for *one* corpus — a single product's docs, a single research domain, a single customer support knowledge base. You'd naturally write a prompt tuned to what that corpus looks like, because the agent benefits from knowing what kind of document it's searching across. The unusual thing in this benchmark setup isn't writing per-domain prompts; it's that BRIGHT bundles 12 unrelated corpora into one evaluation and implicitly invites a generic prompt that has to handle all of them at once. A generic prompt does worse on every domain we tested. What follows is what we'd do in any real deployment, applied 12 times.
+
 For each domain, we looked at queries with zero retrieval recall and named the gold archetype. Five distinct shapes emerged:
 
 | Gold archetype | Domains |
