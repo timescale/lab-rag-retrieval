@@ -268,21 +268,21 @@ These reverts are part of the same methodology as the wins. The loop's value isn
 
 Best per-domain results across all 12 BRIGHT domains:
 
-| Domain | nDCG@10 | Config |
-|--------|---:|---|
-| biology | **0.803** | opus + Wikipedia-concept prompt |
-| psychology | 0.654 | opus + Wikipedia-concept prompt |
-| theoremqa_questions | 0.614 | sonnet max + math prompt |
-| pony | 0.576 | opus + foundational-docs prompt |
-| sustainable_living | 0.560 | opus + Wikipedia-concept prompt |
-| earth_science | 0.551 | opus + Wikipedia-concept prompt |
-| leetcode | 0.522 | opus + foundational-docs prompt |
-| robotics | 0.512 | opus + specialized + concept sketches |
-| theoremqa_theorems | 0.507 | opus + specialized |
-| economics | 0.483 | opus + canonical-source prompt |
-| stackoverflow | 0.476 | opus + foundational-docs prompt |
-| aops | 0.369 | sonnet xhigh + concept sketches |
-| **Mean across 12 domains** | **0.556** | |
+| Domain | nDCG@10 | Retrieval recall | Ranking recall | Config |
+|--------|---:|---:|---:|---|
+| biology | **0.803** | 0.825 | 0.831 | opus + Wikipedia-concept prompt |
+| psychology | 0.654 | 0.731 | 0.636 | opus + Wikipedia-concept prompt |
+| theoremqa_questions | 0.614 | 0.773 | 0.711 | sonnet max + math prompt |
+| pony | 0.576 | 0.581 | 0.283 | opus + foundational-docs prompt |
+| sustainable_living | 0.560 | 0.711 | 0.593 | opus + Wikipedia-concept prompt |
+| earth_science | 0.551 | 0.639 | 0.557 | opus + Wikipedia-concept prompt |
+| leetcode | 0.522 | 0.575 | 0.527 | opus + foundational-docs prompt |
+| robotics | 0.512 | 0.595 | 0.527 | opus + specialized + concept sketches |
+| theoremqa_theorems | 0.507 | 0.761 | 0.669 | opus + specialized |
+| economics | 0.483 | 0.660 | 0.474 | opus + canonical-source prompt |
+| stackoverflow | 0.476 | 0.629 | 0.554 | opus + foundational-docs prompt |
+| aops | 0.369 | 0.652 | 0.446 | sonnet xhigh + concept sketches |
+| **Mean across 12 domains** | **0.556** | **0.678** | **0.567** | |
 
 For context, here's where this lands on the public [BRIGHT leaderboard](https://brightbenchmark.github.io/) (Short Document track, nDCG@10 mean across 12 domains, as of mid-May 2026):
 
