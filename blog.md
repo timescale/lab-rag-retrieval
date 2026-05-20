@@ -21,7 +21,7 @@ The headline numbers:
 | MuSiQue (500 questions) | **0.418 EM / 0.564 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable 500-sample setup; we ran Haiku, PAR-RAG ran Qwen-Plus, so this conflates model with architecture — see below |
 | BRIGHT (12 domains, mean nDCG@10) | **0.556** | Comparable to the 2nd–3rd rank tier on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only result in that tier without a fine-tuned retriever |
 
-**A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.** Today the thin stack is already competitive. The bet is that "today" keeps moving and the stack doesn't have to.
+**A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.** Today the thin stack is already competitive on quality, expensive at inference. The bet is that "today" keeps moving and the stack doesn't have to.
 
 ## The Foundation
 
@@ -304,13 +304,59 @@ Second, against the only other agentic system on the board — NVIDIA's NeMo Ret
 
 This was the second surprising finding. The leaderboard's top tier is dominated by training-based approaches, and we sit in the middle of it with a system with no task-specific training.
 
+## What This Costs
+
+Thin at build time, expensive at inference time. The honest case for the thin-stack thesis has to own this.
+
+We measured per-query cost on the actual configuration by running real `claude -p` invocations through the same MCP server and prompts the headline eval used, capturing `total_cost_usd` and `usage` from claude's result event. Full methodology in `blog_cost_calcs.md`.
+
+**Per query:**
+
+| Setup | $/query | wall sec | mean tool calls |
+|---|---:|---:|---:|
+| BRIGHT, Opus max (10 of 12 domains) | ~$0.65 | ~30 | 10–12 |
+| BRIGHT, Sonnet xhigh (aops, theoremqa_questions) | ~$0.34 | ~70 | 17 |
+| MuSiQue, Haiku | ~$0.09 | ~77 | 11 |
+
+**Per full eval run:**
+
+- BRIGHT 12 domains, 1,384 queries: ~$890, ~70 min wall clock (concurrency 10)
+- MuSiQue 500 questions: ~$46, ~2 hr wall clock (concurrency 5)
+
+**Compared to a specialized retriever** (Mira-class, BGE-class — forward pass through a fine-tuned embedding model):
+
+| | $/query inference | latency | training |
+|---|---:|---:|---:|
+| Our agent loop (BRIGHT, Opus max) | ~$0.65 | ~30s | none |
+| Fine-tuned retriever | ~$0.0001 | <1s | $10K–$100K |
+
+Per-query inference is roughly **6,500× cheaper, 30× faster** for the specialized retriever. But the per-query gap isn't the whole comparison — the retriever has a training cost that the agent loop doesn't.
+
+Fine-tuning a ~500M-param reasoning-aware embedding model on the kind of data Mira / BGE-Reasoner / RakanEmbed are trained against runs on the order of $10K–$100K of GPU time, depending on dataset size and how many ablation runs you actually do before shipping. That cost amortizes over the queries served before the next retrain. Retrain triggers include: a new frontier model lands and you want to refresh against its embeddings; the corpus shifts (new docs, new domains added); or accumulated drift makes the existing model stale on production traffic. Realistic windows are 100K–10M queries between retrains.
+
+The crossover at our per-query cost: with $50K training amortized over N queries, total cost per query for the specialized retriever is $0.0001 + $50K/N. That equals our $0.65/query when N ≈ 77K queries. Below ~77K queries between retrains, the agent loop is cheaper on total cost. Above it, the retriever wins.
+
+A 1,384-query benchmark sits well below — training never pays back at this scale. A customer-support system serving 100K queries/month sits well above — training pays back in a few weeks. Which side of crossover you're on depends on traffic and retrain cadence; both are case-specific.
+
+**Both the per-query gap and the crossover point are moving.** The numbers above are static — today's prices, today's capabilities. They're not the trajectory.
+
+Per-token inference cost has fallen roughly an order of magnitude every 12–18 months at each capability tier, as smaller models absorb what previously needed bigger ones. Haiku 4.5 today handles work that needed Sonnet 3.5 a year ago at a fraction of the per-token cost. If that pattern holds, the same BRIGHT-style workload that runs at $0.65/query on Opus today plausibly runs at ~$0.10/query in 18 months and ~$0.02 in 3 years.
+
+A specialized retriever has the opposite trajectory. Its per-token cost is already near the floor of model inference economics — it can only get cheaper through commodity GPU price compression, which moves slower than frontier inference prices. Its *capability* is frozen at training time and doesn't track new model generations at all without retraining.
+
+Plug the projected per-query cost into the crossover formula: at today's $0.65, breakeven is ~77K queries between retrains. At $0.10 in 18 months, ~500K queries. At $0.02 in 3 years, ~2.5M queries. Each model generation, more workloads move into the "agent loop wins on total cost" side of the line.
+
+This trajectory is the second half of the thin-stack bet on cost. Whether per-token prices keep compressing at the rate the last few generations suggest is a prediction, not a finding.
+
+The cost is real today; the trajectory is the case for treating it as a near-term tax rather than a structural disadvantage. The next section places this alongside the quality and maintenance arguments for the thin stack.
+
 ## The Bitter Lesson Comes for RAG
 
 The RAG literature's implicit assumption: complex problems need complex architectures. Multi-hop reasoning → add iterative retrieval (IRCoT). Domain knowledge → add a knowledge graph (HippoRAG). Long documents → add hierarchical indexing (RAPTOR). Hard queries → add multi-stage planning (PAR-RAG).
 
 Each scaffold was a reasonable answer to a real model limitation at the time. The problem is that limitations move and scaffolds don't. A planner built for a 2024 model's decomposition weakness is still a planner — to maintain, to debug, to integrate — after the 2026 model decomposes natively. The complexity outlives the problem it was designed for.
 
-This is Sutton's bitter lesson applied to retrieval: methods that ride model improvement beat methods that bake in fixed structure. Three concrete shapes that takes here:
+This is Sutton's bitter lesson applied to retrieval: methods that ride model improvement beat methods that bake in fixed structure. Four concrete shapes that takes here:
 
 1. **The thin stack is already competitive.** A capable model + hybrid search + RRF + an agent loop matches or beats most of the complex pipelines on both benchmarks today. Whether it strictly wins model-for-model we can't fully prove from these numbers (the PAR-RAG comparison is confounded), but the *direction* is clear: most architectural complexity in the literature was solving for yesterday's model.
 
@@ -318,9 +364,11 @@ This is Sutton's bitter lesson applied to retrieval: methods that ride model imp
 
 3. **What structure remains is portable across models.** Hybrid search, RRF, the tool-using agent loop itself — these aren't bets on the current model's weaknesses. They're primitives a stronger model uses better. That's the kind of structure worth keeping; the rest is the kind worth defending against with a loop.
 
+4. **Cost rides the frontier downward too.** Per-token inference cost has fallen ~10× per 12–18 months at each capability tier. A fine-tuned retriever's per-token cost is already near the floor and its capability is frozen at training time. The crossover where retrieval beats the agent loop on total cost moves upward each model generation — quantified in *What This Costs* above.
+
 The optimizations the loop did adopt on BRIGHT — per-domain prompts, per-doc sketches — are explicitly the removable kind. A prompt is text. A sketch is a column. When they stop earning their keep, you delete them. None of it is architectural commitment.
 
-The honest part: "the model will catch up" is a prediction, not a finding. The finding is that the thin stack is already competitive in 2026. The prediction is that the gap between thin and complex stacks widens in the thin stack's favor from here. We're betting on it.
+What's prediction vs finding here: the thin stack already being competitive on quality in 2026 is the finding. The thin stack winning on quality, maintenance, and cost over the next few model generations is the prediction. We're betting on it.
 
 ## Conclusion
 
