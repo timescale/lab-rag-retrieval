@@ -168,8 +168,12 @@ server.tool(
         return { content: [{ type: "text" as const, text: "No results found." }] };
       }
 
+      // Cast id::text so this works for both text-id BRIGHT tables and
+      // the uuid-id MuSiQue corpus table. Without the cast, uuid columns
+      // throw "operator does not exist: uuid = text" and the tool result
+      // surfaces an error to the agent (recall collapsed to ~6%).
       const rows = await sql.unsafe<Array<{ id: string; content: string }>>(
-        `SELECT id, content FROM ${ACTIVE_TABLE} WHERE id = ANY($1::text[])`,
+        `SELECT id, content FROM ${ACTIVE_TABLE} WHERE id::text = ANY($1::text[])`,
         [topIds.map((r) => r.id)],
       );
 

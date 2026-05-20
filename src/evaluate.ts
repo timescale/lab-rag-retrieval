@@ -40,6 +40,11 @@ function parseArgs() {
   let samples = Infinity;
   let description = "";
   let hops: number | null = null;
+  // By default we filter out questions we've manually audited as
+  // dataset errors (results/dataset-errors.json). For an unaudited
+  // larger run (e.g. 500 samples for an apples-to-apples leaderboard
+  // comparison) pass --no-error-filter to skip that exclusion.
+  let applyErrorFilter = true;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--samples" && args[i + 1]) {
@@ -51,10 +56,12 @@ function parseArgs() {
     } else if (args[i] === "--hops" && args[i + 1]) {
       hops = Number.parseInt(args[i + 1]!);
       i++;
+    } else if (args[i] === "--no-error-filter") {
+      applyErrorFilter = false;
     }
   }
 
-  return { samples, description, hops };
+  return { samples, description, hops, applyErrorFilter };
 }
 
 // ---------------------------------------------------------------------------
@@ -188,19 +195,21 @@ function aggregateByKey(
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const { samples: maxSamples, description, hops: hopsFilter } = parseArgs();
+  const { samples: maxSamples, description, hops: hopsFilter, applyErrorFilter } = parseArgs();
 
   // Load dev questions (seeded random sample for reproducible multi-hop coverage)
   const lines = readFileSync(DEV_PATH, "utf-8").trim().split("\n");
   const allQuestions: MuSiQueQuestion[] = lines.map((l) => JSON.parse(l));
-  // Load known dataset errors to exclude
+  // Load known dataset errors to exclude (unless --no-error-filter)
   const ERRORS_PATH = "results/dataset-errors.json";
   let errorIds = new Set<string>();
-  try {
-    errorIds = new Set(
-      (JSON.parse(readFileSync(ERRORS_PATH, "utf-8")) as Array<{ questionId: string }>).map((e) => e.questionId),
-    );
-  } catch {}
+  if (applyErrorFilter) {
+    try {
+      errorIds = new Set(
+        (JSON.parse(readFileSync(ERRORS_PATH, "utf-8")) as Array<{ questionId: string }>).map((e) => e.questionId),
+      );
+    } catch {}
+  }
 
   // Over-sample to get target count after filtering dataset errors, then apply hop filter
   const goodQuestions = sampleQuestions(allQuestions, allQuestions.length)
@@ -208,6 +217,8 @@ async function main() {
   let questions = goodQuestions.slice(0, maxSamples);
   if (errorIds.size > 0) {
     console.log(`Excluded ${errorIds.size} known dataset errors.`);
+  } else if (!applyErrorFilter) {
+    console.log(`Running with --no-error-filter (unaudited).`);
   }
   if (hopsFilter !== null) {
     questions = questions.filter((q) => (q.question_decomposition?.length ?? 0) === hopsFilter);
