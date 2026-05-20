@@ -1,14 +1,16 @@
-# Top-Tier Results on Hard RAG Benchmarks With a Postgres Table and an Autoresearch Loop
+# Top-Tier Results on Hard RAG Benchmarks With One Postgres Table
 
-## The Surprising Finding
+## RAG Complexity Is a Bet Against the Model
 
 The RAG field has gone deep on architectural complexity. Knowledge graphs (HippoRAG), hierarchical retrieval (RAPTOR), iterative planning (PAR-RAG), self-critique (Self-RAG), specialized rerankers, fine-tuned retrievers — pick a paper from the last year and you'll find a multi-stage pipeline.
 
-We tried something different. On the two hardest open RAG benchmarks — **MuSiQue** (multi-hop reasoning over Wikipedia) and **BRIGHT** (reasoning-intensive retrieval across 12 domains) — we used the same minimal stack on both:
+Most of that complexity exists to compensate for things the model can't do on its own. Multi-hop reasoning gets pushed into a planner because the base model isn't good enough at decomposition. Vocabulary mismatch gets pushed into a knowledge graph because the base model can't bridge it. Each scaffold was a reasonable answer to a real limitation at the time. The problem is that the limitations move and the scaffolds don't — the planner built for a 2024 model is still a planner to maintain after the 2026 model decomposes natively. Complexity outlives the problem it was designed for.
+
+We tried the inverse. On the two hardest open RAG benchmarks — **MuSiQue** (multi-hop reasoning over Wikipedia) and **BRIGHT** (reasoning-intensive retrieval across 12 domains) — we used the same minimal stack on both:
 
 - One Postgres table per corpus, with BM25 + HNSW indexes
 - An MCP tool server giving Claude direct access to hybrid search
-- An **autoresearch loop** to find corpus-specific tweaks: hypothesize from failure analysis, implement, eval with paired stats, revert anything that regresses, log either way
+- An **autoresearch loop** whose job is not to add sophistication but to *prevent* it: hypothesize from failure analysis, implement, eval with paired stats, revert anything that regresses, log either way
 
 That's it. No knowledge graphs. No hierarchical indexing. No retrieval planning pipelines. No fine-tuned models.
 
@@ -16,18 +18,16 @@ The headline numbers:
 
 | Benchmark | Our result | Notes |
 |---|---:|---|
-| MuSiQue (500 questions) | **0.418 EM / 0.564 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on the same 500-sample setup |
-| BRIGHT (12 domains, mean nDCG@10) | **0.556** | Would place 3rd on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only top-3 result without a fine-tuned retriever |
+| MuSiQue (500 questions) | **0.418 EM / 0.564 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable 500-sample setup; we ran Haiku, PAR-RAG ran Qwen-Plus, so this conflates model with architecture — see below |
+| BRIGHT (12 domains, mean nDCG@10) | **0.556** | Comparable to the 2nd–3rd rank tier on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only result in that tier without a fine-tuned retriever |
 
-The surprising part isn't that simple architectures can compete — it's that *disciplined methodology beats architectural innovation* on these benchmarks. The autoresearch loop produced two small, targeted classes of optimization for BRIGHT (per-domain prompts and per-doc concept sketches) and explicitly *prevented* us from adding complexity on MuSiQue, where every "improvement" we tried regressed.
-
-The architecture is small. The methodology is what mattered.
+**A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.** Today the thin stack is already competitive. The bet is that "today" keeps moving and the stack doesn't have to.
 
 ## The Foundation
 
 Both benchmarks ran on the same minimal stack.
 
-**Database**: A [Ghost](https://ghost.build) PostgreSQL instance. (Disclosure: this work was done by the team that builds Ghost.) We believe Ghost is best-suited for this type of work for three reasons. First, a generous free tier that makes running these experiments easy and free. Second, it's one of the few hosted providers offering [pg_textsearch](https://github.com/timescale/pg_textsearch) — true BM25 scoring as a native Postgres index. Third, near-instant database forking: any experiment that needed to mutate DB state (new columns, new indexes, re-tagging) ran on a fresh fork that came up in ~1–2 minutes, kept the old DB untouched, and made revert-on-regression a matter of changing one connection string. The forking turned out to be load-bearing for the autoresearch loop described below. The entire schema is a single table with three meaningful columns:
+**Database**: A [Ghost](https://ghost.build) PostgreSQL instance. (Disclosure: this work was done by the team that builds Ghost.) We believe Ghost is best-suited for this type of work for three reasons. First, a generous free tier that makes running these experiments easy and free. Second, it's one of the few hosted providers offering [pg_textsearch](https://github.com/timescale/pg_textsearch) — true BM25 scoring as a native Postgres index. Third, near-instant database forking: any experiment that needed to mutate DB state (new columns, new indexes, re-tagging) ran on a fresh fork that came up in 10s of seconds, kept the old DB untouched, and made revert-on-regression a matter of changing one connection string. The forking turned out to be load-bearing for the autoresearch loop described below. The entire schema is a single table with three meaningful columns:
 
 ```sql
 CREATE TABLE corpus (
@@ -56,7 +56,7 @@ For MuSiQue we used Claude Haiku throughout. For BRIGHT we used Claude Opus on m
 
 ## The Autoresearch Loop
 
-The methodology that produced both sets of results. Inspired loosely by Karpathy's autoresearch concept, but with explicit discipline that we found mattered far more than the iteration speed:
+"Stay thin" sounds easy and is hard in practice. Every failure case in the eval looks like an argument for adding something — a planner, a knowledge graph, a reranker. Some of those additions help; most don't, but you can't tell which without testing. The autoresearch loop is the testing discipline: every candidate change must earn its place against paired statistics, and everything that doesn't gets reverted with a logged reason. That's how MuSiQue produced "every improvement hurt" (five reverts) and how BRIGHT landed on two cheap configs rather than a pile of speculative additions. Inspired loosely by Karpathy's autoresearch concept, but with explicit discipline that we found mattered far more than the iteration speed:
 
 **1. Start from failure analysis.** Look at queries where the system underperformed — zero retrieval recall, wrong top-10, bad final answer. Name the failure pattern. Don't propose changes until the pattern is named.
 
@@ -72,9 +72,9 @@ The methodology that produced both sets of results. Inspired loosely by Karpathy
 
 **7. Log everything.** Adopted changes, reverted changes, non-viable hypotheses. The log is the methodology's output, not just a side effect — it's how future sessions avoid re-trying ideas that already failed.
 
-One piece of infrastructure made the loop fast enough to actually run at this cadence: **cheap database forking on Ghost**. Any change that mutated DB state — adding a column, re-tagging documents, building a new BM25 index over a derived field, ingesting a new corpus — ran on a fresh fork that came up in a minute or two. If the experiment won, we promoted the fork to be the active DB and paused the old one. If it regressed, we paused the new fork and pointed `DATABASE_URL` back at the old one. No state to unwind by hand, no parallel DB instances to maintain. This kept the marginal cost of "let me try X" close to zero, which is what makes a multi-attempt loop work in practice. Without it, the corpus-side experiments on BRIGHT (sketches, new indexes, alternative tagging strategies) would have been prohibitively expensive to iterate on.
+One piece of infrastructure made the loop fast enough to actually run at this cadence: **cheap database forking on Ghost**. Any change that mutated DB state — adding a column, re-tagging documents, building a new BM25 index over a derived field, ingesting a new corpus — ran on a fresh fork that came up quickly. If the experiment won, we promoted the fork to be the active DB and paused the old one. If it regressed, we paused the new fork and pointed `DATABASE_URL` back at the old one. No state to unwind by hand, no parallel DB instances to maintain. This kept the marginal cost of "let me try X" close to zero, which is what makes a multi-attempt loop work in practice. Without it, the corpus-side experiments on BRIGHT (sketches, new indexes, alternative tagging strategies) would have been prohibitively expensive to iterate on.
 
-The loop's job is to find the optimizations a given corpus actually needs, while preventing the natural temptation to keep adding complexity. The two benchmarks below are case studies of the loop reaching opposite verdicts on the same starting baseline.
+The two benchmarks below are case studies of the loop reaching opposite verdicts on the same starting baseline. On MuSiQue the loop will tell us to add nothing — every change regressed; the simple stack was already at the model's ceiling. On BRIGHT it will tell us to add two cheap, removable things (per-domain prompts and per-doc sketches) and to leave the schema and retrieval stack untouched. Same loop, opposite verdicts, same underlying logic: only adopt what the next model won't make embarrassing.
 
 ## Case 1: MuSiQue — When the Loop Says "Stay Simple"
 
@@ -111,7 +111,7 @@ For context, here's how this compares to results reported in [PAR-RAG](https://a
 | PAR-RAG | 0.33 | 0.43 | Plan-driven decomposition |
 | **Ours (Postgres + Haiku)** | **0.418** | **0.564** | Single table, hybrid search, MCP tools |
 
-A dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning — beats every system in the table. The caveat: we use Claude Haiku (a newer model than Qwen-Plus used in PAR-RAG), so some of the gap likely comes from model capability. But the simplicity gap is real — these complex pipelines may be compensating for limitations of older models that newer ones handle natively.
+A dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning — outscores every system in the table. The honest caveat: we ran Claude Haiku and PAR-RAG ran Qwen-Plus, so this number conflates model capability with architecture. We cannot cleanly separate the two from this data alone. Under the thin-stack thesis, the confound is part of the finding: each row above represents complexity designed against an older model's limitations, and a newer model handles those cases natively. A thin stack on a newer model captured most of what each pipeline was designed to provide — at a fraction of the maintenance footprint.
 
 ### Dataset Quality and the Accuracy Estimate
 
@@ -149,7 +149,7 @@ The result was humbling:
 
 Every one was reverted. The model (Haiku) is surprisingly good at search out of the box. It naturally uses both semantic and fulltext together (93% of queries use both), adjusts candidate limits when needed, and falls back to grep for exact entity matching. Every attempt to "help" by adding complexity just added noise.
 
-**This is the autoresearch loop's most important output on MuSiQue.** Not a specific optimization that worked — but the systematic ruling-out of a class of ideas. Without the loop, we would have shipped a more complex system that scored lower.
+**This is exactly the thin-stack thesis in miniature.** Every architectural addition we tried was overhead the current model didn't need. Without the loop's discipline, we would have shipped each of them, scored lower, and locked ourselves into pipeline complexity to maintain going forward. The loop's most valuable output on MuSiQue isn't a kept change — it's five reverted ones.
 
 ### Schema Simplicity Reduces Token Overhead
 
@@ -250,6 +250,8 @@ A similar sketch enrichment on aops produced +0.053 retrieval recall (p = 0.017)
 
 Sketches cost time and tokens (we tagged the robotics corpus at ~62k docs over ~6 hours using Claude Haiku, with the recipe explicitly designed to be resumable across rate-limit windows). The cost is one-time per corpus.
 
+Sketches are also disposable in the sense that matters most for the thin-stack thesis: a sketch is text in a column. When the next model bridges user-symptom vocabulary to formal API vocabulary on its own, we drop the column and the 4-way RRF falls back to 2-way. No pipeline to retire, no retriever to retrain. The same is true of the per-domain prompts — a prompt is a string. The optimizations the loop adopts are explicitly the kind that can be deleted, not the kind that get baked into infrastructure.
+
 ### What the Loop Ruled Out
 
 Equally important: the loop also identified ideas that *didn't* work, with enough discipline that we didn't accumulate cruft from chasing them.
@@ -302,17 +304,23 @@ Second, against the only other agentic system on the board — NVIDIA's NeMo Ret
 
 This was the second surprising finding. The leaderboard's top tier is dominated by training-based approaches, and we sit in the middle of it with a system with no task-specific training.
 
-## Why This Is Surprising
+## The Bitter Lesson Comes for RAG
 
-The implicit assumption in the RAG literature is that complex problems need complex architectures. Multi-hop reasoning → add iterative retrieval (IRCoT). Domain knowledge → add a knowledge graph (HippoRAG). Long documents → add hierarchical indexing (RAPTOR). Hard queries → add multi-stage planning (PAR-RAG).
+The RAG literature's implicit assumption: complex problems need complex architectures. Multi-hop reasoning → add iterative retrieval (IRCoT). Domain knowledge → add a knowledge graph (HippoRAG). Long documents → add hierarchical indexing (RAPTOR). Hard queries → add multi-stage planning (PAR-RAG).
 
-The autoresearch loop reaches a different conclusion. The complex architectures may be compensating for things a simpler stack handles when paired with:
+Each scaffold was a reasonable answer to a real model limitation at the time. The problem is that limitations move and scaffolds don't. A planner built for a 2024 model's decomposition weakness is still a planner — to maintain, to debug, to integrate — after the 2026 model decomposes natively. The complexity outlives the problem it was designed for.
 
-1. **A capable model** — modern Claude (Haiku for MuSiQue, Opus for BRIGHT) handles search-and-reason iteration competently when given access to BM25 + semantic + grep.
-2. **Hybrid search with RRF fusion** — the BM25-vs-dense tradeoff matters less when both are available and the model picks. RRF is cheap and effective.
-3. **A disciplined search-and-test methodology** — most architectural complexity in the field comes from speculative additions. With a loop that reverts what doesn't work, the system stays simple by default and only grows where there's evidence.
+This is Sutton's bitter lesson applied to retrieval: methods that ride model improvement beat methods that bake in fixed structure. Three concrete shapes that takes here:
 
-The optimizations the loop *did* discover for BRIGHT — per-domain prompts and concept sketches — are corpus-specific configurations, not architectural innovations. They cost a few hours of diagnostic and tagging work per corpus. Compared to building, training, and maintaining a multi-stage pipeline, they're cheap.
+1. **The thin stack is already competitive.** A capable model + hybrid search + RRF + an agent loop matches or beats most of the complex pipelines on both benchmarks today. Whether it strictly wins model-for-model we can't fully prove from these numbers (the PAR-RAG comparison is confounded), but the *direction* is clear: most architectural complexity in the literature was solving for yesterday's model.
+
+2. **The thin stack carries less debt forward.** When the next model lands, our stack is one Postgres table and an MCP tool. The new model plugs into the same primitives and is immediately better at using them. A knowledge graph, a hierarchical index, a fine-tuned retriever: each gets re-justified against the new model's baseline, and often torn down.
+
+3. **What structure remains is portable across models.** Hybrid search, RRF, the tool-using agent loop itself — these aren't bets on the current model's weaknesses. They're primitives a stronger model uses better. That's the kind of structure worth keeping; the rest is the kind worth defending against with a loop.
+
+The optimizations the loop did adopt on BRIGHT — per-domain prompts, per-doc sketches — are explicitly the removable kind. A prompt is text. A sketch is a column. When they stop earning their keep, you delete them. None of it is architectural commitment.
+
+The honest part: "the model will catch up" is a prediction, not a finding. The finding is that the thin stack is already competitive in 2026. The prediction is that the gap between thin and complex stacks widens in the thin stack's favor from here. We're betting on it.
 
 ## Conclusion
 
@@ -331,8 +339,12 @@ The methodology that produced the results is also small, but disciplined:
 - Revert if it regressed; log either way
 - Three attempts per hypothesis; declare non-viable if no variant works
 
-The autoresearch loop validated simplicity on MuSiQue (every "improvement" we tried regressed) and discovered two corpus-specific optimization classes on BRIGHT (per-domain prompts, per-doc concept sketches) — same loop, opposite verdicts on the same foundation.
+The loop validated simplicity on MuSiQue (every "improvement" we tried regressed) and adopted two cheap, removable optimization classes on BRIGHT (per-domain prompts, per-doc concept sketches) — same loop, opposite verdicts, same underlying logic.
 
-The takeaway: **on these two benchmarks, a Postgres table and a disciplined autoresearch loop competed with much more complex pipelines.** The complex pipelines aren't wrong — they may be the right answer for systems that can't run the loop, or that need a fixed configuration. But if you can iterate, the foundation is enough.
+The takeaway isn't that we beat a leaderboard. It's a posture for building RAG systems in a regime where the model is improving faster than your pipeline can. **RAG complexity is a bet against the model.** Most architectural additions in the field are compensating for a specific model's specific weaknesses, and they become overhead the moment the weakness goes away. A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.
+
+The autoresearch loop's job, under this framing, isn't to discover sophistication. It's to be the antibody against accumulating it. Every change must earn its place against paired statistics; everything that doesn't gets reverted with a log entry. Stay thin by default.
+
+If the bet is right, every pipeline built for yesterday's model becomes someone's maintenance burden. If it's wrong, the cost of being wrong is small: a Postgres table and a prompt.
 
 The full code, experiment log, and per-domain methodology notes are available at [repo link].
