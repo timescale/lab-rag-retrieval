@@ -183,6 +183,13 @@ But what happens when **retrieval itself** is the bottleneck — when the query 
 | economics | "Samsung's contribution to South Korea's GDP" | ASC 606 revenue recognition accounting standard |
 | aops | "Mary baking 10 cookies of 3 shapes, distribute diversely" | ProofWiki "Pigeonhole Principle" theorem |
 
+BRIGHT's headline metric is nDCG@10 (a standard ranking-quality score for the final top-10 returned per query). We also track two diagnostic metrics throughout this section:
+
+- **Retrieval recall**: of all the gold documents for a query, what fraction did the agent *see* in any tool-call result during its search — regardless of whether they ended up in the final ranking. Measures the retrieval-side question: did the agent's searches surface the right docs at all?
+- **Ranking recall**: of all the gold documents, what fraction made it into the final top-10. Measures the ranking-side question: of the docs the agent saw, did it rank the right ones highly?
+
+The distinction matters: an experiment can move retrieval recall (the agent sees more gold) without moving ranking recall (the agent ranks the same), and vice versa. We'll see both patterns below.
+
 The minimal baseline from MuSiQue — Postgres + hybrid + Claude with MCP tools — gets ~0.45 mean nDCG@10 on BRIGHT, capped by retrieval-side vocabulary mismatch. Even with raw queries through BM25 + semantic search + RRF (no agent at all), retrieval recall on robotics tops out around 0.34 — there's a corpus-side ceiling no amount of agent cleverness can break.
 
 The autoresearch loop's job on BRIGHT was to find what *did* work. It discovered two classes of optimization, and ruled out several others.
