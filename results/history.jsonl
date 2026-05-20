@@ -24,3 +24,6 @@
 {"timestamp":"2026-04-15T14:50:25.253Z","f1":0.1504,"em":0.13,"questions":100,"mode":"tool","description":"simplified schema + no me_memory_get","memory_ts_hash":"6408b61f40a5"}
 {"timestamp":"2026-04-15T19:57:54.049Z","f1":0.5331,"em":0.42,"questions":100,"mode":"tool","description":"simplified schema fixed","memory_ts_hash":"6408b61f40a5"}
 {"timestamp":"2026-04-15T21:32:48.268Z","f1":0.5517,"em":0.44,"questions":100,"mode":"tool","description":"simplified schema, concurrency 5","memory_ts_hash":"6408b61f40a5"}
+{"timestamp":"2026-05-20T09:48:22.599Z","f1":0.1846,"em":0.118,"questions":500,"mode":"tool","description":"MuSiQue 500-sample unaudited (for blog leaderboard-style comparison)","memory_ts_hash":"2e73da4d535a"}
+{"timestamp":"2026-05-20T11:04:22.917Z","f1":0.5279,"em":0.41,"questions":100,"mode":"tool","description":"MuSiQue 100q sanity after uuid::text MCP fix","memory_ts_hash":"2e73da4d535a"}
+{"timestamp":"2026-05-20T15:09:07.691Z","f1":0.5401,"em":0.418,"questions":500,"mode":"tool","description":"MuSiQue 500-sample unaudited post-MCP-fix (blog leaderboard-style comparison)","memory_ts_hash":"2e73da4d535a"}

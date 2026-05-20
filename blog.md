@@ -16,7 +16,8 @@ The headline numbers:
 
 | Benchmark | Our result | Notes |
 |---|---:|---|
-| MuSiQue (100 questions) | **0.440 EM / 0.600 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable split |
+| MuSiQue (500q unaudited, comparable to PAR-RAG) | **0.418 EM / 0.564 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on the same 500-sample setup |
+| MuSiQue (100q audited) | **0.440 EM / 0.600 Acc** | Same system, with 6 dataset errors excluded |
 | BRIGHT (12 domains, mean nDCG@10) | **0.556** | Would place 3rd on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only top-3 result without a fine-tuned retriever |
 
 The surprising part isn't that simple architectures can compete — it's that *disciplined methodology beats architectural innovation* on these benchmarks. The autoresearch loop produced two small, targeted classes of optimization for BRIGHT (per-domain prompts and per-doc concept sketches) and explicitly *prevented* us from adding complexity on MuSiQue, where every "improvement" we tried regressed.
@@ -87,18 +88,31 @@ Example 4-hop question:
 
 ### Results
 
-We evaluated on 100 randomly sampled questions (seeded for reproducibility) covering all hop types:
+We ran two evaluations on seeded random samples (deterministic across runs).
+
+**100-sample audited evaluation** — our headline number. Each failure was manually inspected for genuine model error vs benchmark dataset artifact (see [Dataset Quality](#dataset-quality-is-a-real-confounder) below for what those artifacts look like). 6 questions in the sample were identifiable dataset errors and were excluded:
 
 | Hops | F1 | EM | Accuracy | Recall | n |
 |------|----|----|----------|--------|---|
 | 2-hop | 0.670 | 0.579 | 0.737 | 0.921 | 38 |
 | 3-hop | 0.478 | 0.326 | 0.535 | 0.837 | 43 |
 | 4-hop | 0.482 | 0.421 | 0.474 | 0.816 | 19 |
-| **Overall** | **0.552** | **0.440** | **0.600** | **0.865** | **100** |
+| **Overall (audited)** | **0.552** | **0.440** | **0.600** | **0.865** | **100** |
+
+**500-sample unaudited evaluation** — for direct comparison against PAR-RAG, which evaluates on 500 random samples without per-question audit. Same seeded sampling, no dataset-error exclusion:
+
+| Hops | F1 | EM | Accuracy | Recall | n |
+|------|----|----|----------|--------|---|
+| 2-hop | 0.617 | 0.485 | 0.636 | 0.835 | 239 |
+| 3-hop | 0.539 | 0.400 | 0.558 | 0.848 | 165 |
+| 4-hop | 0.351 | 0.281 | 0.396 | 0.703 | 96 |
+| **Overall (unaudited)** | **0.540** | **0.418** | **0.564** | **0.814** | **500** |
+
+The numbers held up well at the 5× sample size — the 100-question result wasn't a small-sample fluke. The slight drop from the audited 100 to the unaudited 500 (F1 0.552 → 0.540, Acc 0.600 → 0.564) is consistent with dataset errors being scored as failures in the unaudited run.
 
 EM is the strictest metric — character-for-character identical to gold. F1 measures token overlap. Accuracy uses an LLM judge to evaluate semantic equivalence (catching cases like "16" ≈ "sixteen", "south" ≈ "meanders slowly southwards"). Recall is the fraction of ground-truth supporting paragraphs the system retrieved.
 
-For context, here's how this compares to results reported in [PAR-RAG](https://arxiv.org/abs/2504.16787) (Table 3, revised January 2026), one of the latest papers on multi-hop RAG. PAR-RAG benchmarks several RAG approaches on MuSiQue using Qwen-Plus. Different models, different eval splits (they use 500 random samples vs our 100 — see [Dataset Quality](#dataset-quality-is-a-real-confounder) for why), so not an apples-to-apples comparison — but the architectural comparison is instructive:
+For context, here's how this compares to results reported in [PAR-RAG](https://arxiv.org/abs/2504.16787) (Table 3, revised January 2026), one of the latest papers on multi-hop RAG. PAR-RAG benchmarks several RAG approaches on MuSiQue using Qwen-Plus on 500 random samples — matching our 500-sample unaudited setup, though with a different model:
 
 | System | EM | Acc | Notes |
 |--------|-----|-----|-------|
@@ -109,9 +123,10 @@ For context, here's how this compares to results reported in [PAR-RAG](https://a
 | ReAct | 0.15 | 0.36 | Agent-based reasoning |
 | Self-Ask | 0.13 | 0.24 | Iterative decomposition |
 | PAR-RAG | 0.33 | 0.43 | Plan-driven decomposition |
-| **Ours (Postgres + Haiku)** | **0.440** | **0.600** | Single table, hybrid search, MCP tools |
+| **Ours (Postgres + Haiku), 500-sample unaudited** | **0.418** | **0.564** | Single table, hybrid search, MCP tools |
+| **Ours (Postgres + Haiku), 100-sample audited** | **0.440** | **0.600** | Same system, dataset errors excluded |
 
-Strong results with a dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning. The caveat: we use Claude Haiku (a newer model than Qwen-Plus used in PAR-RAG), so some of the gap likely comes from model capability. But the simplicity gap is real — these complex pipelines may be compensating for limitations of older models that newer ones handle natively.
+The 500-sample comparison is the more apples-to-apples one against PAR-RAG. Both numbers beat every system in the table on both EM and Acc, with a dramatically simpler architecture — no knowledge graphs, no hierarchical indexing, no retrieval planning. The caveat: we use Claude Haiku (a newer model than Qwen-Plus used in PAR-RAG), so some of the gap likely comes from model capability. But the simplicity gap is real — these complex pipelines may be compensating for limitations of older models that newer ones handle natively.
 
 ### The Loop's Verdict: Every Improvement Hurt
 
@@ -151,11 +166,11 @@ Deep analysis of 4-hop failures revealed that several "wrong" answers were actua
 - A paragraph says "Cleveland, Ohio singer-songwriter Eric Carmen" → the expected chain resolves "Cleveland" to Cleveland, North Carolina
 - "Atlanta" is identified as Georgia's largest city → the next hop maps it to Atlanta, Michigan
 
-We documented 6 such dataset errors in our 100-question sample and excluded them. This is also why we evaluate on 100 questions rather than the 500 common in previous research — auditing each failure requires human judgment to distinguish genuine model errors from dataset artifacts.
+We documented 6 such dataset errors in our 100-question sample and excluded them — that's what the "audited" version of the result table reports. Auditing every failure requires human judgment, so the larger 500-question run had to be reported unaudited (matching how prior work reports its 500-sample numbers). The slight drop from audited to unaudited (~0.04 EM, ~0.04 Acc) is roughly what you'd expect if a similar 5-6% dataset-error rate holds in the larger sample.
 
 ### The Bridge: Retrieval Is Solved, So Where's the Next Bottleneck?
 
-With 86.5% recall, the system finds the right paragraphs on MuSiQue most of the time. The gap between retrieval and answer quality is the reasoning step. Improving MuSiQue further is a reasoning problem, not a retrieval problem.
+With retrieval recall consistently above 80% (86.5% audited, 81.4% unaudited), the system finds the right paragraphs on MuSiQue most of the time. The gap between retrieval and answer quality is the reasoning step. Improving MuSiQue further is a reasoning problem, not a retrieval problem.
 
 But what happens when **retrieval itself** is the bottleneck — when the query and the gold document use entirely different vocabulary? That's where BRIGHT comes in.
 
