@@ -54,6 +54,8 @@ When the model passes both semantic and fulltext (it does ~93% of the time on Mu
 
 For MuSiQue we used Claude Haiku throughout. For BRIGHT we used Claude Opus on most domains (the reasoning-intensive corpora benefit from a larger model). Same MCP tool, same Postgres schema, same retrieval logic.
 
+One thing worth flagging up front: this foundation — the single-table schema, hybrid search with RRF fusion, the MCP tool surface, the prompt structure — wasn't designed from first principles. It was itself the output of an autoresearch loop on an earlier project. Which means the MuSiQue and BRIGHT results below are, strictly speaking, autoresearch on top of autoresearch. The methodology is turtles all the way down — though at some point you do have to ingest documents.
+
 ## The Autoresearch Loop
 
 The methodology that produced both sets of results. Inspired loosely by Karpathy's autoresearch concept, but with explicit discipline that we found mattered far more than the iteration speed:
