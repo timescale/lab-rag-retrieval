@@ -72,7 +72,7 @@ For MuSiQue we used Claude Haiku throughout. For BRIGHT we used Claude Opus on m
 
 **7. Log everything.** Adopted changes, reverted changes, non-viable hypotheses. The log is the methodology's output, not just a side effect — it's how future sessions avoid re-trying ideas that already failed.
 
-One piece of infrastructure made the loop fast enough to actually run at this cadence: **cheap database forking on Ghost**. Any change that mutated DB state — adding a column, re-tagging documents, building a new BM25 index over a derived field, ingesting a new corpus — ran on a fresh fork that came up quickly. If the experiment won, we promoted the fork to be the active DB and paused the old one. If it regressed, we paused the new fork and pointed `DATABASE_URL` back at the old one. No state to unwind by hand, no parallel DB instances to maintain. This kept the marginal cost of "let me try X" close to zero, which is what makes a multi-attempt loop work in practice. Without it, the corpus-side experiments on BRIGHT (sketches, new indexes, alternative tagging strategies) would have been prohibitively expensive to iterate on.
+One piece of infrastructure made the loop fast enough to actually run at this cadence: **cheap database forking**. Any change that mutated DB state — adding a column, re-tagging documents, building a new BM25 index over a derived field, ingesting a new corpus — ran on a fresh fork that came up quickly. If the experiment won, we promoted the fork to be the active DB and paused the old one. If it regressed, we paused the new fork and pointed `DATABASE_URL` back at the old one. No state to unwind by hand, no parallel DB instances to maintain. This kept the marginal cost of "let me try X" close to zero, which is what makes a multi-attempt loop work in practice.
 
 The two benchmarks below are case studies of the loop reaching opposite verdicts on the same starting baseline. On MuSiQue the loop will tell us to add nothing — every change regressed; the simple stack was already at the model's ceiling. On BRIGHT it will tell us to add two cheap, removable things (per-domain prompts and per-doc sketches) and to leave the schema and retrieval stack untouched. Same loop, opposite verdicts, same underlying logic: only adopt what the next model won't make embarrassing.
 
@@ -137,9 +137,7 @@ The ~6% of questions that are dataset artifacts depress every metric in the 500-
 
 ### The Loop's Verdict: Every Improvement Hurt
 
-A worthwhile aside on where "the baseline" came from: the foundation we tested against — the single-table schema, hybrid search + RRF, the MCP tool surface, the prompt structure — was itself the output of an autoresearch loop on an earlier project. So when we say we ran the loop on every improvement we could think of, we mean autoresearch on top of autoresearch. Turtles all the way down — though at some point you do have to ingest documents.
-
-The result was humbling:
+The baseline we tested against — single-table schema, hybrid + RRF, the MCP tool surface, the prompt structure — was itself the output of an earlier autoresearch loop. So every "improvement" here was tested against an already-loop-validated baseline. The result was humbling:
 
 | Experiment | Impact on F1 |
 |-----------|-------------|
@@ -166,9 +164,9 @@ Our MCP tool started with 10 parameters (semantic, fulltext, grep, meta, tree, t
 
 Stripping unused parameters reduced tokens per call — and for a model processing hundreds of tool calls per evaluation, this adds up.
 
-### The Bridge: Retrieval Is Solved, So Where's the Next Bottleneck?
+### Bridge: From Retrieval to Reasoning
 
-With retrieval recall consistently above 80% (86.5% audited, 81.4% unaudited), the system finds the right paragraphs on MuSiQue most of the time. The gap between retrieval and answer quality is the reasoning step. Improving MuSiQue further is a reasoning problem, not a retrieval problem.
+Retrieval recall on MuSiQue stays above 80% (86.5% audited, 81.4% unaudited) — the system finds the right paragraphs most of the time. The remaining gap to perfect EM is mostly a reasoning problem, not a retrieval one.
 
 But what happens when **retrieval itself** is the bottleneck — when the query and the gold document use entirely different vocabulary? That's where BRIGHT comes in.
 
