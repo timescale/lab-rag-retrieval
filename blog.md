@@ -356,13 +356,9 @@ The cost is real today; the trajectory is the case for treating it as a near-ter
 
 ## The Bitter Lesson Comes for RAG
 
-The RAG literature's implicit assumption: complex problems need complex architectures. Multi-hop reasoning → add iterative retrieval (IRCoT). Domain knowledge → add a knowledge graph (HippoRAG). Long documents → add hierarchical indexing (RAPTOR). Hard queries → add multi-stage planning (PAR-RAG).
-
-Each scaffold was a reasonable answer to a real model limitation at the time. The problem is that limitations move and scaffolds don't. A planner built for a 2024 model's decomposition weakness is still a planner — to maintain, to debug, to integrate — after the 2026 model decomposes natively. The complexity outlives the problem it was designed for.
-
 This is Sutton's bitter lesson applied to retrieval: methods that ride model improvement beat methods that bake in fixed structure. Four concrete shapes that takes here:
 
-1. **The thin stack is already competitive.** A capable model + hybrid search + RRF + an agent loop matches or beats most of the complex pipelines on both benchmarks today. Whether it strictly wins model-for-model we can't fully prove from these numbers (the PAR-RAG comparison is confounded), but the *direction* is clear: most architectural complexity in the literature was solving for yesterday's model.
+1. **The thin stack is already competitive.** A capable model + hybrid search + RRF + an agent loop matches or beats most of the complex pipelines on both benchmarks today. Most architectural complexity in the literature was solving for yesterday's model.
 
 2. **The thin stack carries less debt forward.** When the next model lands, our stack is one Postgres table and an MCP tool. The new model plugs into the same primitives and is immediately better at using them. A knowledge graph, a hierarchical index, a fine-tuned retriever: each gets re-justified against the new model's baseline, and often torn down.
 
@@ -376,27 +372,10 @@ What's prediction vs finding here: the thin stack already being competitive on q
 
 ## Conclusion
 
-The architecture that solved both benchmarks is small:
+The takeaway isn't that we beat a leaderboard. It's a posture for building RAG systems in a regime where the model is improving faster than your pipeline can. **RAG complexity is a bet against the model.** Most architectural additions in the field compensate for a specific model's specific weaknesses and become overhead the moment the weakness goes away. A thin stack — one Postgres table, hybrid search + RRF, an agent loop, and a disciplined autoresearch loop to revert what doesn't help — rides the frontier instead.
 
-- One Postgres table per corpus
-- HNSW + BM25 indexes
-- An MCP tool with hybrid search and RRF fusion
-- A capable model with direct tool access
+The loop validated that posture on MuSiQue (every "improvement" regressed) and adopted two cheap, removable optimization classes on BRIGHT (per-domain prompts, per-doc concept sketches). Same loop, opposite verdicts, same underlying logic: stay thin by default.
 
-The methodology that produced the results is also small, but disciplined:
-
-- Hypothesize from failure analysis
-- Implement the smallest change
-- Eval with paired stats
-- Revert if it regressed; log either way
-- Three attempts per hypothesis; declare non-viable if no variant works
-
-The loop validated simplicity on MuSiQue (every "improvement" we tried regressed) and adopted two cheap, removable optimization classes on BRIGHT (per-domain prompts, per-doc concept sketches) — same loop, opposite verdicts, same underlying logic.
-
-The takeaway isn't that we beat a leaderboard. It's a posture for building RAG systems in a regime where the model is improving faster than your pipeline can. **RAG complexity is a bet against the model.** Most architectural additions in the field are compensating for a specific model's specific weaknesses, and they become overhead the moment the weakness goes away. A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.
-
-The autoresearch loop's job, under this framing, isn't to discover sophistication. It's to be the antibody against accumulating it. Every change must earn its place against paired statistics; everything that doesn't gets reverted with a log entry. Stay thin by default.
-
-If the bet is right, every pipeline built for yesterday's model becomes someone's maintenance burden. If it's wrong, the cost of being wrong is small: a Postgres table and a prompt.
+If the bet is right, every pipeline built for yesterday's model becomes someone's maintenance burden. If it's wrong, the cost of being wrong is a Postgres table and a prompt.
 
 The full code, experiment log, and per-domain methodology notes are available at [repo link].
