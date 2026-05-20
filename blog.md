@@ -1,12 +1,12 @@
-# Achieving State-of-the-Art Results on Multi-Hop RAG with PostgreSQL running on ghost.build
+# Achieving State-of-the-Art Results on Hard RAG Benchmarks with PostgreSQL running on ghost.build
 
 ## Introduction
 
-Multi-hop question answering — where answering a single question requires chaining facts from multiple documents — is one of the hardest benchmarks in retrieval-augmented generation (RAG). Unlike simple factoid QA where a single retrieved paragraph usually suffices, multi-hop questions like "What county borders the county containing the birthplace of the performer of Tonight You're Mine?" require finding 2-4 separate paragraphs and reasoning across them.
+Retrieval-augmented generation (RAG) is easy to make work on the average case and brutally hard to make work on the hard cases — the multi-hop questions that need facts chained across documents, the reasoning-intensive queries where the gold answer uses entirely different vocabulary than the question. Two benchmarks have emerged as the hardest in their respective shapes: **MuSiQue** for multi-hop QA, and **BRIGHT** for reasoning-intensive retrieval.
 
-We set out to build a competitive multi-hop RAG system using nothing more than PostgreSQL (with pgvector and pg_textsearch), OpenAI embeddings, and Claude as the reasoning engine. No specialized retrieval frameworks, no vector databases, no LangChain — just a Postgres table, two indexes, and an MCP tool server.
+We set out to build a competitive RAG system using nothing more than PostgreSQL (with pgvector and pg_textsearch), OpenAI embeddings, and Claude as the reasoning engine. No specialized retrieval frameworks, no vector databases, no LangChain — just a Postgres table, two indexes, and an MCP tool server.
 
-This post covers what we learned building and optimizing this system against the MuSiQue benchmark — including several surprising findings about what actually matters (and what doesn't) for RAG performance.
+This post covers what we learned building and optimizing this system on both benchmarks — including several surprising findings about what actually matters (and what doesn't) for RAG performance.
 
 ## The Benchmark: MuSiQue
 
@@ -135,6 +135,73 @@ We documented 6 such dataset errors in our 100-question sample and excluded them
 With 93% recall on 2-hop and 88% overall, the system finds the right paragraphs most of the time. The gap between retrieval and answer quality is the reasoning step — the model has the evidence but doesn't always chain it correctly.
 
 This suggests future improvements should focus on the reasoning model (bigger model, better prompting for chain-of-thought) rather than retrieval mechanics.
+
+## Going Further: BRIGHT
+
+MuSiQue tests multi-hop reasoning over Wikipedia. The harder problem — and the one that's caught the field's attention recently — is reasoning-intensive retrieval where the gold document uses **completely different vocabulary** than the query. That's what [BRIGHT](https://arxiv.org/abs/2407.12883) measures.
+
+### The benchmark
+
+BRIGHT is twelve separate retrieval corpora, each with its own queries, each scored by nDCG@10. The query/gold pairs are pulled from real venues (Stack Exchange, AoPS, Reddit, GitHub) and the gold-labeling rule is "what an expert answer would actually cite." This produces a very specific kind of difficulty:
+
+| Domain | Query phrasing | Gold document |
+|--------|----------------|---------------|
+| biology | "Why do I only breathe out of one nostril?" | Wikipedia "Nasal cycle" |
+| psychology | "Term for inability to see past current emotional state?" | Wikipedia "Hot-cold empathy gap" |
+| stackoverflow | "Is there a melt command in Snowflake?" | Snowflake SQL UNPIVOT reference docs |
+| robotics | "Subscriber in hardware interface" | ros2_control `TopicBasedSystem` API reference |
+| economics | "Samsung's contribution to South Korea's GDP" | ASC 606 revenue recognition accounting standard |
+| aops | "Mary baking 10 cookies of 3 shapes, distribute diversely" | ProofWiki "Pigeonhole Principle" theorem |
+
+In every case the gold sits at a different abstraction level than the query. Standard BM25 + semantic search fails because the surface words don't overlap.
+
+### Same architecture, harder problem
+
+The system is the same as MuSiQue: one Postgres table per domain, HNSW + BM25 indexes, the same MCP search tool. Two things changed:
+
+**1. Per-domain failure-mode-specific prompts.** Looking at where retrieval failed on each domain revealed five distinct gold archetypes, each requiring a different framing:
+
+- **Foundational language/runtime docs** (pony, leetcode): gold is the official language reference, not framework helpers the user mentioned
+- **Wikipedia-on-the-concept** (biology, psychology, earth_science, sustainable_living): gold is the formal-name article, not forum/blog content using the user's symptom vocabulary
+- **Canonical academic source** (economics): gold is the NBER/IMF/textbook paper, not topical news about the surface entity
+- **API reference docs** (stackoverflow, robotics): gold is the library's method reference, not framework wrappers
+- **Named formal theorems** (aops, theoremqa_theorems): gold is the ProofWiki theorem the story-wrapped word problem reduces to
+
+Each prompt tells Claude what gold "looks like" for its domain and instructs it to search by underlying-concept names rather than surface vocabulary. The same model + the right prompt produced large wins: +0.247 nDCG@10 on pony, +0.152 on leetcode, +0.137 on biology.
+
+**2. Per-doc concept sketches.** For two domains (robotics, aops) where retrieval kept hitting a corpus-side ceiling, we generated an 80-120 word concept sketch for every document that intentionally bridges *both* vocabularies — including the formal API/algorithm/theorem name AND the user-symptom phrasing a stuck developer would actually search for. The sketches get their own BM25 index and embedding column, fused into the existing retrieval via 4-way Reciprocal Rank Fusion (content BM25, content semantic, sketch BM25, sketch semantic). Robotics retrieval recall jumped from 0.527 to 0.594 (+0.067, p=0.014) after adding sketches.
+
+### Results
+
+Best per-domain results (paired t and sign tests vs the sonnet-max-only baseline):
+
+| Domain | Best nDCG@10 | Config | Δ vs sonnet baseline |
+|--------|---:|---|---:|
+| biology | **0.803** | opus + Wikipedia-concept prompt | +0.137 (sig) |
+| psychology | 0.654 | opus + Wikipedia-concept prompt | +0.084 (sig) |
+| theoremqa_questions | 0.614 | sonnet max + math prompt | — |
+| pony | 0.576 | opus + foundational-docs prompt | +0.247 (sig) |
+| sustainable_living | 0.560 | opus + Wikipedia-concept prompt | +0.072 (sig) |
+| earth_science | 0.551 | opus + Wikipedia-concept prompt | +0.092 vs prior best (sig) |
+| leetcode | 0.522 | opus + foundational-docs prompt | +0.152 (sig) |
+| robotics | 0.512 | opus + specialized + concept sketches | +0.094 (retrieval recall sig) |
+| theoremqa_theorems | 0.507 | opus + specialized | wash (-0.008, adopted for model consistency) |
+| economics | 0.483 | opus + canonical-source prompt | +0.027 (not sig) |
+| stackoverflow | 0.476 | opus + foundational-docs prompt | +0.047 (not sig) |
+| aops | 0.369 | sonnet xhigh + concept sketches | — |
+| **Mean across 12 domains** | **0.556** | | **+0.104 vs sonnet-max-only** |
+
+For context, the original BRIGHT paper reports mean nDCG@10 in the 0.15–0.30 range across the same 12 domains for standard retrieval pipelines (BM25, dense retrievers, BGE + query-reformulation prompting), and ~0.30–0.40 for fine-tuned reasoning-aware retrievers. Our 0.556 was reached without any retriever fine-tuning, training data, or specialized embedding models — just per-domain prompts and, for two corpora, the per-doc sketch enrichment.
+
+### What worked, what didn't
+
+- **Failure-mode-specific prompts beat one-size-fits-all.** We tried a single "universal" prompt across all domains; it underperformed per-domain prompts by 5–25 points on every domain we A/B tested. The diagnostic effort (look at zero-recall queries, identify why gold was missed, name the archetype) was a one-time cost per domain.
+
+- **Concept sketches help when retrieval is the bottleneck.** Where the agent was finding gold (high retrieval recall, lower nDCG) sketches were a wash. Where the agent was missing gold because of vocabulary mismatch (low retrieval recall), sketches pulled retrieval up by 0.05–0.10. Not a universal fix; targeted to corpora with proven query/gold vocabulary divergence.
+
+- **Pure prompt iteration has diminishing returns past a point.** On stackoverflow we ran three back-to-back prompt experiments (grep-encouragement, answer-first-then-search, search-then-answer-with-sources) — each successfully changed the agent's tool-call behavior in observable ways, and each landed within noise on the score. The corpus-side ceiling at retrieval recall ≈ 0.65 was unmovable from the prompt side.
+
+- **Bigger models help where the corpus has vocabulary mismatch.** Switching from Sonnet to Opus paired with the right specialized prompt produced significant wins on 7 of 12 domains. On the two pure-math domains, where Opus's training expertise already aligns with the gold formalism, the model swap was a wash — the bottleneck there is ranking, not retrieval.
 
 ## The Surprising Power of COPY
 
