@@ -27,7 +27,7 @@ The architecture is small. The methodology is what mattered.
 
 Both benchmarks ran on the same minimal stack.
 
-**Database**: A [Ghost](https://ghost.build) PostgreSQL instance. Generous free tier (which makes running these experiments easy and free), and one of the few hosted providers offering [pg_textsearch](https://github.com/timescale/pg_textsearch) — true BM25 scoring as a native Postgres index. The entire schema is a single table with three meaningful columns:
+**Database**: A [Ghost](https://ghost.build) PostgreSQL instance. We picked Ghost for three reasons. First, a generous free tier that makes running these experiments easy and free. Second, it's one of the few hosted providers offering [pg_textsearch](https://github.com/timescale/pg_textsearch) — true BM25 scoring as a native Postgres index. Third, near-instant database forking: any experiment that needed to mutate DB state (new columns, new indexes, re-tagging) ran on a fresh fork that came up in ~1–2 minutes, kept the old DB untouched, and made revert-on-regression a matter of changing one connection string. The forking turned out to be load-bearing for the autoresearch loop described below. The entire schema is a single table with three meaningful columns:
 
 ```sql
 CREATE TABLE corpus (
