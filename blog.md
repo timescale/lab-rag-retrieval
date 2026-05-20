@@ -131,7 +131,9 @@ Deep analysis of 4-hop failures revealed several "wrong" answers that were actua
 | 4-hop | 0.482 | 0.421 | 0.474 | 0.816 | 19 |
 | **Overall (100q audited)** | **0.552** | **0.440** | **0.600** | **0.865** | **100** |
 
-This is the cleaner read on system quality. The ~6% of questions that are dataset artifacts depress every metric in the 500-sample run by a similar amount, which is what you'd expect if the same artifact rate carries through. Going through every failure in the 500-sample run with the same human-judgment audit would (we expect) recover similar headline numbers — but is laborious enough that the 500-sample result is reported as-is for direct comparison, and the 100-sample audit is reported as the better estimate of the system's actual ability.
+Two honest caveats on this audit: it was failure-only — we didn't review successes for analogous false-positives where the system "got it right" for the wrong reason — and it was team-judged, not blinded. The per-error reasoning is recorded in [`results/dataset-errors.json`](results/dataset-errors.json) (offending paragraph, expected chain, our reasoning), so the specific calls are open to second-guessing — but the judgment is still ours.
+
+The ~6% of questions that are dataset artifacts depress every metric in the 500-sample run by a similar amount, which is what you'd expect if the same artifact rate carries through. Going through every failure in the 500-sample run with the same human-judgment audit would (we expect) recover similar headline numbers — but is laborious enough that the 500-sample result is reported as-is for direct comparison.
 
 ### The Loop's Verdict: Every Improvement Hurt
 
@@ -224,6 +226,8 @@ The wins were large where Opus's training had been steering it toward the *wrong
 | sustainable_living | 0.488 | **0.560** | +0.072 | p = 0.008 |
 
 A universal one-size-fits-all prompt we A/B tested first underperformed the per-domain prompts by 5–25 nDCG@10 points on every domain. The diagnostic effort (look at zero-recall queries → identify why gold was missed → name the archetype) was the one-time cost per domain that the loop produced.
+
+**A methodology note.** BRIGHT ships no train/dev/test split, and we wrote each archetype prompt by inspecting zero-recall queries on the same set we then re-scored — strictly speaking, test-set tuning. Two reasons we think the wins are genuine retrieval improvement rather than fitting: the prompts name corpus-level archetypes ("Wikipedia article on the concept", "official API reference NOT tutorial") rather than per-query gold, and the gains concentrate on retrieval recall — a corpus-level vocabulary-bridge effect, not a per-query ranking one. The universal-prompt A/B above rules out "any prompt change helps." A held-out random-split validation would be stricter and we didn't do one.
 
 ### Optimization 2: Per-Doc Concept Sketches
 
