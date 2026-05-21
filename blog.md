@@ -28,7 +28,7 @@ The headline numbers, on the two hardest open RAG benchmarks:
 
 Both benchmarks ran on the same minimal stack.
 
-**Database**: A [Ghost](https://ghost.build) PostgreSQL instance. (Disclosure: this work was done by the team that builds Ghost.) We believe Ghost is best-suited for this type of work for three reasons. First, a generous free tier that makes running these experiments easy and free. Second, it's one of the few hosted providers offering [pg_textsearch](https://github.com/timescale/pg_textsearch) — true BM25 scoring as a native Postgres index. Third, near-instant database forking: any experiment that needed to mutate DB state (new columns, new indexes, re-tagging) ran on a fresh fork that came up in 10s of seconds, kept the old DB untouched, and made revert-on-regression a matter of changing one connection string. The forking turned out to be load-bearing for the autoresearch loop described below. The entire schema is a single table with three meaningful columns:
+**Database**: Hosted PostgreSQL on [Ghost](https://ghost.build) (disclosure: built by our team). Two features were load-bearing for the loop: [pg_textsearch](https://github.com/timescale/pg_textsearch) for native BM25 indexes, and near-instant database forking — any DB-mutating experiment could be reverted by switching one connection string. Forking is fast (seconds, not the many hours of dump-and-restore at this corpus size) and free (every fork we spun up fit within Ghost's free plan); without both the time cost and the dollar cost being near-zero, running the loop at this cadence wouldn't have been practical. The entire schema is a single table with three meaningful columns:
 
 ```sql
 CREATE TABLE corpus (
