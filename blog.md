@@ -55,6 +55,8 @@ When the model passes both semantic and fulltext (it does ~93% of the time on Mu
 
 For MuSiQue we used Claude Haiku throughout. For BRIGHT we used Claude Opus on most domains (the reasoning-intensive corpora benefit from a larger model). Same MCP tool, same Postgres schema, same retrieval logic.
 
+That's the whole stack. The rest of the article is about the loop that kept it that way — and the two case studies where the loop reached opposite verdicts on what to add.
+
 ## The Loop That Says No
 
 "Stay thin" sounds easy and is hard in practice. Every failure case in the eval looks like an argument for adding something — a planner, a knowledge graph, a reranker. Some of those additions help; most don't, but you can't tell which without testing. The autoresearch loop is the testing discipline: every candidate change must earn its place against paired statistics, and everything that doesn't gets reverted with a logged reason. That's how MuSiQue produced "every improvement hurt" (five reverts) and how BRIGHT landed on two cheap configs rather than a pile of speculative additions. Inspired loosely by Karpathy's autoresearch concept, but with explicit discipline that we found mattered far more than the iteration speed:
@@ -75,7 +77,19 @@ For MuSiQue we used Claude Haiku throughout. For BRIGHT we used Claude Opus on m
 
 One piece of infrastructure made the loop fast enough to actually run at this cadence: **cheap database forking**. Any change that mutated DB state — adding a column, re-tagging documents, building a new BM25 index over a derived field, ingesting a new corpus — ran on a fresh fork that came up quickly. If the experiment won, we promoted the fork to be the active DB and paused the old one. If it regressed, we paused the new fork and pointed `DATABASE_URL` back at the old one. No state to unwind by hand, no parallel DB instances to maintain. This kept the marginal cost of "let me try X" close to zero, which is what makes a multi-attempt loop work in practice.
 
-The two benchmarks below are case studies of the loop reaching opposite verdicts on the same starting baseline. On MuSiQue the loop will tell us to add nothing — every change regressed; the simple stack was already at the model's ceiling. On BRIGHT it will tell us to add two cheap, removable things (per-domain prompts and per-doc sketches) and to leave the schema and retrieval stack untouched. Same loop, opposite verdicts, same underlying logic: only adopt what the next model won't make embarrassing.
+What the loop's verdict looks like in practice: on MuSiQue, "add nothing." The baseline we tested against was itself the output of an earlier autoresearch loop — single-table schema, hybrid + RRF, the MCP tool surface, the prompt structure. Every architectural change we tried against it regressed. Five reverts in a row:
+
+| Experiment | Impact on F1 |
+|-----------|-------------|
+| Auto-hybrid search (force both BM25+semantic) | -0.127 |
+| Increase results per search (10→20) | -0.092 |
+| Add search hints to tool descriptions | -0.142 |
+| Entity-enriched content in embeddings | -0.045 |
+| Sub-question decomposition prompts | -0.019 |
+
+**This is the thesis in miniature.** Each one looked reasonable. Each one regressed. Without the loop's discipline we would have shipped every one and locked ourselves into pipeline complexity to maintain. The loop's most valuable output on MuSiQue isn't a kept change — it's five reverted ones.
+
+On BRIGHT, the same loop reached the opposite verdict — kept two cheap, removable additions (per-domain prompts and per-doc sketches) and rejected the rest. Same loop, opposite verdicts. The two case studies below cover the why and the how.
 
 ## Case 1: MuSiQue — When the Loop Says "Stay Simple"
 
@@ -136,38 +150,9 @@ Two honest caveats on this audit: it was failure-only — we didn't review succe
 
 The ~6% of questions that are dataset artifacts depress every metric in the 500-sample run by a similar amount, which is what you'd expect if the same artifact rate carries through. Going through every failure in the 500-sample run with the same human-judgment audit would (we expect) recover similar headline numbers — but is laborious enough that the 500-sample result is reported as-is for direct comparison.
 
-### The Loop's Verdict: Every Improvement Hurt
-
-The baseline we tested against — single-table schema, hybrid + RRF, the MCP tool surface, the prompt structure — was itself the output of an earlier autoresearch loop. So every "improvement" here was tested against an already-loop-validated baseline. The result was humbling:
-
-| Experiment | Impact on F1 |
-|-----------|-------------|
-| Auto-hybrid search (force both BM25+semantic) | -0.127 |
-| Increase results per search (10→20) | -0.092 |
-| Add search hints to tool descriptions | -0.142 |
-| Entity-enriched content in embeddings | -0.045 |
-| Sub-question decomposition prompts | -0.019 |
-
-Every one was reverted. The model (Haiku) is surprisingly good at search out of the box. It naturally uses both semantic and fulltext together (93% of queries use both), adjusts candidate limits when needed, and falls back to grep for exact entity matching. Every attempt to "help" by adding complexity just added noise.
-
-**This is the thesis in miniature.** Every architectural addition we tried was overhead the current model didn't need. Without the loop's discipline, we would have shipped each of them, scored lower, and locked ourselves into pipeline complexity to maintain going forward. The loop's most valuable output on MuSiQue isn't a kept change — it's five reverted ones.
-
-### Schema Simplicity Reduces Token Overhead
-
-Our MCP tool started with 10 parameters (semantic, fulltext, grep, meta, tree, temporal, weights, candidateLimit, limit, order_by). Usage analysis revealed only three matter:
-
-| Parameter | Usage |
-|-----------|-------|
-| semantic | 96.4% |
-| fulltext | 97.8% |
-| grep | 4.5% |
-| Everything else | <0.5% |
-
-Stripping unused parameters reduced tokens per call — and for a model processing hundreds of tool calls per evaluation, this adds up.
-
 ### Bridge: From Retrieval to Reasoning
 
-Retrieval recall holds above 80% at every hop depth on the audited set (0.92 / 0.84 / 0.82 on 2-, 3-, 4-hop). Accuracy falls more steeply (0.74 / 0.54 / 0.47). Even on 4-hop, the system finds the supporting paragraphs most of the time — it just can't always compose the answer. The remaining gap is mostly a reasoning problem, not a retrieval one.
+Retrieval on MuSiQue is mostly handled — partly because the corpus permits it, and partly because Haiku already knows how to search. The model uses both semantic and fulltext together on 93% of queries, adjusts candidate limits when initial searches come back too narrow, and falls back to grep for exact entity matching. The combination produces retrieval recall above 80% at every hop depth on the audited set (0.92 / 0.84 / 0.82 on 2-, 3-, 4-hop). Accuracy falls more steeply (0.74 / 0.54 / 0.47). Even on 4-hop, the system finds the supporting paragraphs most of the time — it just can't always compose the answer. The remaining gap is mostly a reasoning problem, not a retrieval one.
 
 But what happens when **retrieval itself** is the bottleneck — when the query and the gold document use entirely different vocabulary? That's where BRIGHT comes in.
 
