@@ -1,4 +1,4 @@
-# Top-Tier RAG Results With a Stack That Refuses to Grow
+# RAG Complexity Is a Bet Against the Model: One Postgres Table, Top-Tier MuSiQue + BRIGHT, No Fine-Tuned Retriever
 
 Modern RAG systems grow barnacles. A model misses a multi-hop question, so someone adds a planner. It struggles with vocabulary mismatch, so someone adds a knowledge graph. It ranks the wrong document, so someone adds a reranker. Each addition is reasonable in isolation. Each solves a real failure mode. And each one is a bet that the model will keep needing that help.
 
