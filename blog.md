@@ -55,7 +55,7 @@ When the model passes both semantic and fulltext (it does ~93% of the time on Mu
 
 For MuSiQue we used Claude Haiku throughout. For BRIGHT we used Claude Opus on most domains (the reasoning-intensive corpora benefit from a larger model). Same MCP tool, same Postgres schema, same retrieval logic.
 
-That's the whole stack. The rest of the article is about the loop that kept it that way — and the two case studies where the loop reached opposite verdicts on what to add.
+That's the starting stack. Out of every experiment the loop ran on either benchmark, the only schema change that survived was a `sketch` column with its own BM25 + HNSW indexes, added on two of BRIGHT's twelve domains — covered in [Case 2](#optimization-2-per-doc-concept-sketches). The rest of the article is about the loop and the two case studies where it reached opposite verdicts on what to add.
 
 ## The Loop That Says No
 
