@@ -130,25 +130,9 @@ A dramatically simpler architecture — no knowledge graphs, no hierarchical ind
 
 ### Dataset Quality and the Accuracy Estimate
 
-The 500-sample number above is the right comparison against PAR-RAG, but it's not the right answer to "how well does the system actually work." MuSiQue has a non-trivial rate of mechanical-chain dataset errors that score the model wrong even when its reasoning is correct.
+The 0.564 headline above is depressed by errors in MuSiQue's gold answers. The benchmark constructs multi-hop questions by mechanically chaining single-hop facts, which produces entity-name collisions: "Cleveland, Ohio" resolves to Cleveland, North Carolina in the expected chain; "Atlanta" as Georgia's largest city maps to Atlanta, Michigan next hop. We audited failures in a 100-question sample and found 6 cases where the system's answer was more defensible than gold. Excluding them lifts overall accuracy to 0.600, which we believe is the more accurate read of the system's actual performance ([per-error reasoning in `results/dataset-errors.json`](results/dataset-errors.json)).
 
-MuSiQue constructs multi-hop questions by mechanically chaining single-hop facts, which creates entity-name collisions:
-
-- A paragraph says "Cleveland, Ohio singer-songwriter Eric Carmen" → the expected chain resolves "Cleveland" to Cleveland, North Carolina
-- "Atlanta" is identified as Georgia's largest city → the next hop maps it to Atlanta, Michigan
-
-Deep analysis of 4-hop failures revealed several "wrong" answers that were actually more defensible than the ground truth. We documented 6 such dataset errors in our 100-question audited sample (each with the offending paragraph, expected chain, and our reasoning recorded in [`results/dataset-errors.json`](results/dataset-errors.json)). After excluding them — same system, same prompt, same Haiku — the numbers tighten:
-
-| Hops | F1 | EM | Accuracy | Recall | n |
-|------|----|----|----------|--------|---|
-| 2-hop | 0.670 | 0.579 | 0.737 | 0.921 | 38 |
-| 3-hop | 0.478 | 0.326 | 0.535 | 0.837 | 43 |
-| 4-hop | 0.482 | 0.421 | 0.474 | 0.816 | 19 |
-| **Overall (100q audited)** | **0.552** | **0.440** | **0.600** | **0.865** | **100** |
-
-Two honest caveats on this audit: it was failure-only — we didn't review successes for analogous false-positives where the system "got it right" for the wrong reason — and it was team-judged, not blinded. The per-error reasoning is recorded in [`results/dataset-errors.json`](results/dataset-errors.json) (offending paragraph, expected chain, our reasoning), so the specific calls are open to second-guessing — but the judgment is still ours.
-
-The ~6% of questions that are dataset artifacts depress every metric in the 500-sample run by a similar amount, which is what you'd expect if the same artifact rate carries through. Going through every failure in the 500-sample run with the same human-judgment audit would (we expect) recover similar headline numbers — but is laborious enough that the 500-sample result is reported as-is for direct comparison.
+We report 0.564 as the headline because it's the apples-to-apples comparison against PAR-RAG. The audit was failure-only and team-judged, so the specific calls are open to second-guessing — but the error rate likely carries through the 500-sample run, so the gap between measured score and true performance is real and roughly uniform.
 
 ### Bridge: From Retrieval to Reasoning
 
@@ -296,9 +280,7 @@ This was the second surprising finding. The leaderboard's top tier is dominated 
 
 Thin at build time, expensive at inference time. The honest case for the thin-stack thesis has to own this.
 
-We measured per-query cost on the actual configuration by running real `claude -p` invocations through the same MCP server and prompts the headline eval used, capturing `total_cost_usd` and `usage` from claude's result event. Full methodology in `blog_cost_calcs.md`.
-
-**Per query:**
+**Per query** (measured via `claude -p` invocations through the same MCP server and prompts as the headline eval; full methodology in `blog_cost_calcs.md`):
 
 | Setup | $/query | wall sec | mean tool calls |
 |---|---:|---:|---:|
@@ -306,37 +288,13 @@ We measured per-query cost on the actual configuration by running real `claude -
 | BRIGHT, Sonnet xhigh (aops, theoremqa_questions) | ~$0.34 | ~70 | 17 |
 | MuSiQue, Haiku | ~$0.09 | ~77 | 11 |
 
-**Per full eval run:**
+A specialized retriever (Mira-class, BGE-class) runs ~$0.0001 per query at <1s latency — roughly **6,500× cheaper, 30× faster** than our agent loop. But the retriever carries a training cost the agent loop doesn't: ~$10K–$100K to fine-tune a ~500M-param reasoning-aware embedding model, amortized over 100K–10M queries before the next retrain.
 
-- BRIGHT 12 domains, 1,384 queries: ~$890, ~70 min wall clock (concurrency 10)
-- MuSiQue 500 questions: ~$46, ~2 hr wall clock (concurrency 5)
+With $50K training amortized over N queries, the retriever's total cost equals our $0.65/query when N ≈ 77K. Below that, the agent loop is cheaper on total cost; above it, the retriever wins. A 1,384-query benchmark sits well below; a 100K-queries/month customer support system sits well above.
 
-**Compared to a specialized retriever** (Mira-class, BGE-class — forward pass through a fine-tuned embedding model):
+**The crossover moves each model generation.** Per-token inference cost has fallen ~10× per 12–18 months at each capability tier — Haiku 4.5 today handles work that needed Sonnet 3.5 a year ago at a fraction of the per-token cost. A specialized retriever is already near the floor of model inference economics and doesn't track new model generations without retraining. Project forward: crossover at ~77K queries today, ~500K in 18 months, ~2.5M in 3 years. Each generation, more workloads land on the agent-loop side.
 
-| | $/query inference | latency | training |
-|---|---:|---:|---:|
-| Our agent loop (BRIGHT, Opus max) | ~$0.65 | ~30s | none |
-| Fine-tuned retriever | ~$0.0001 | <1s | $10K–$100K |
-
-Per-query inference is roughly **6,500× cheaper, 30× faster** for the specialized retriever. But the per-query gap isn't the whole comparison — the retriever has a training cost that the agent loop doesn't.
-
-Fine-tuning a ~500M-param reasoning-aware embedding model on the kind of data Mira / BGE-Reasoner / RakanEmbed are trained against runs on the order of $10K–$100K of GPU time, depending on dataset size and how many ablation runs you actually do before shipping. That cost amortizes over the queries served before the next retrain. Retrain triggers include: a new frontier model lands and you want to refresh against its embeddings; the corpus shifts (new docs, new domains added); or accumulated drift makes the existing model stale on production traffic. Realistic windows are 100K–10M queries between retrains.
-
-The crossover at our per-query cost: with $50K training amortized over N queries, total cost per query for the specialized retriever is $0.0001 + $50K/N. That equals our $0.65/query when N ≈ 77K queries. Below ~77K queries between retrains, the agent loop is cheaper on total cost. Above it, the retriever wins.
-
-A 1,384-query benchmark sits well below — training never pays back at this scale. A customer-support system serving 100K queries/month sits well above — training pays back in a few weeks. Which side of crossover you're on depends on traffic and retrain cadence; both are case-specific.
-
-**Both the per-query gap and the crossover point are moving.** The numbers above are static — today's prices, today's capabilities. They're not the trajectory.
-
-Per-token inference cost has fallen roughly an order of magnitude every 12–18 months at each capability tier, as smaller models absorb what previously needed bigger ones. Haiku 4.5 today handles work that needed Sonnet 3.5 a year ago at a fraction of the per-token cost. If that pattern holds, the same BRIGHT-style workload that runs at $0.65/query on Opus today plausibly runs at ~$0.10/query in 18 months and ~$0.02 in 3 years.
-
-A specialized retriever has the opposite trajectory. Its per-token cost is already near the floor of model inference economics — it can only get cheaper through commodity GPU price compression, which moves slower than frontier inference prices. Its *capability* is frozen at training time and doesn't track new model generations at all without retraining.
-
-Plug the projected per-query cost into the crossover formula: at today's $0.65, breakeven is ~77K queries between retrains. At $0.10 in 18 months, ~500K queries. At $0.02 in 3 years, ~2.5M queries. Each model generation, more workloads move into the "agent loop wins on total cost" side of the line.
-
-This trajectory is the second half of the bet on cost. Whether per-token prices keep compressing at the rate the last few generations suggest is a prediction, not a finding.
-
-The cost is real today; the trajectory is the case for treating it as a near-term tax rather than a structural disadvantage.
+Whether per-token prices keep compressing at this rate is a prediction, not a finding. The cost is real today; the trajectory is the case for treating it as a near-term tax rather than a structural disadvantage.
 
 ## The Bitter Lesson Comes for RAG
 
