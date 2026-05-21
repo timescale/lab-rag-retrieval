@@ -1,33 +1,28 @@
-# Top-Tier Results on Hard RAG Benchmarks With One Postgres Table
+# Top-Tier RAG Results With a Stack That Refuses to Grow
 
-## RAG Complexity Is a Bet Against the Model
+Modern RAG systems grow barnacles. A model misses a multi-hop question, so someone adds a planner. It struggles with vocabulary mismatch, so someone adds a knowledge graph. It ranks the wrong document, so someone adds a reranker. Each addition is reasonable in isolation. Each solves a real failure mode. And each one is a bet that the model will keep needing that help.
 
-The RAG field has gone deep on architectural complexity. Knowledge graphs (HippoRAG), hierarchical retrieval (RAPTOR), iterative planning (PAR-RAG), self-critique (Self-RAG), specialized rerankers, fine-tuned retrievers — pick a paper from the last year and you'll find a multi-stage pipeline.
+That bet gets worse every year. As frontier models improve, work that used to need scaffolding moves back into the model: decomposition, query reformulation, entity disambiguation, deciding when to search again. The weakness can vanish in a single model generation. The complexity built to compensate for it doesn't — months to design and ship, years to maintain. A long-lived tax for a short-lived problem.
 
-Most of that complexity exists to compensate for things the model can't do on its own. Multi-hop reasoning gets pushed into a planner because the base model isn't good enough at decomposition. Vocabulary mismatch gets pushed into a knowledge graph because the base model can't bridge it. Each scaffold was a reasonable answer to a real limitation at the time.
+We tested the opposite posture: keep the retrieval stack as thin as possible, and make every candidate addition prove — with paired statistics on a real benchmark — that it still earns its place. Two parts matter equally: the thin starting stack, and the loop that keeps it thin. The loop is the part people skip — without it, every failure case becomes an argument for adding something, and you'd ship every one of them.
 
-The problem is that the limitations move and the scaffolds don't — the planner built for a 2024 model is still a planner to maintain after the 2026 model decomposes natively. Complexity outlives the problem it was designed for.
-
-We tried the inverse. On the two hardest open RAG benchmarks — **MuSiQue** (multi-hop reasoning over Wikipedia) and **BRIGHT** (reasoning-intensive retrieval across 12 domains) — we used the same minimal stack on both:
+The thin stack itself fits on two lines:
 
 - One Postgres table per corpus, with BM25 + HNSW indexes
 - An MCP tool server giving Claude direct access to hybrid search
-- An **autoresearch loop** whose job is not to add sophistication but to *prevent* it: hypothesize from failure analysis, implement, eval with paired stats, revert anything that regresses, log either way
 
-That's it. No knowledge graphs. No hierarchical indexing. No retrieval planning pipelines. No fine-tuned models.
+That's it. No knowledge graphs. No hierarchical indexing. No retrieval planning pipelines. No fine-tuned retrievers.
 
-The headline numbers:
+On MuSiQue, the loop reverted every "improvement" we tried against this baseline — five consecutive regressions. On BRIGHT, the same loop kept two cheap, removable additions (per-domain prompts, per-doc concept sketches) and rejected the rest. The loop can't predict which additions will age well across model generations — but it can reject the ones that don't help today, which is most of them. For the survivors, the second filter is human judgment about *form*: a prompt is text, a sketch is a column. Both can be deleted when they stop earning.
 
-| Benchmark | Our result | Notes |
+The headline numbers, on the two hardest open RAG benchmarks:
+
+| Benchmark | Our result | Reference |
 |---|---:|---|
-| MuSiQue (500 questions) | **0.418 EM / 0.564 Acc** | vs. PAR-RAG 0.33 EM / 0.43 Acc on a comparable 500-sample setup; we ran Haiku, PAR-RAG ran Qwen-Plus, so this conflates model with architecture — see below |
-| BRIGHT (12 domains, mean nDCG@10) | **0.556** | Comparable to the 2nd–3rd rank tier on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); the only result in that tier without a fine-tuned retriever |
-
-The MuSiQue row is the thesis at work. Each system in the PAR-RAG table was built against a specific model's weakness — planners for decomposition, knowledge graphs for vocabulary bridging. A stronger model on a thin stack absorbs most of what those pipelines were designed to provide. We ran Haiku where PAR-RAG ran Qwen-Plus — exactly the substitution the bet predicts. Model and architecture aren't independent variables in this regime.
+| MuSiQue (500q) | **0.418 EM / 0.564 Acc** | PAR-RAG: 0.33 EM / 0.43 Acc |
+| BRIGHT (12 domains, mean nDCG@10) | **0.556** | 2nd–3rd rank tier on the [public leaderboard](https://brightbenchmark.github.io/) (mid-May 2026); only result there without a fine-tuned retriever |
 
 > **A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up.**
-
-Today the thin stack is already competitive on quality, expensive at inference. The bet is that "today" keeps moving and the stack doesn't have to.
 
 ## The Stack
 
