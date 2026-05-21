@@ -298,7 +298,7 @@ Whether per-token prices keep compressing at this rate is a prediction, not a fi
 
 ## The Bitter Lesson Comes for RAG
 
-This is Sutton's bitter lesson applied to retrieval: methods that ride model improvement beat methods that bake in fixed structure. Four concrete shapes that takes here:
+A thin stack rides the model frontier; a complex pipeline has to be rebuilt to keep up. That's Sutton's bitter lesson, applied to retrieval. Four concrete shapes that takes here:
 
 1. **The thin stack is already competitive.** A capable model + hybrid search + RRF + an agent loop matches or beats most of the complex pipelines on both benchmarks today. Most architectural complexity in the literature was solving for yesterday's model.
 
