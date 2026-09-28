@@ -1,5 +1,5 @@
 {
-  "name": "autoresearch-rag",
+  "name": "lab-rag-retrieval",
   "type": "module",
   "private": true,
   "scripts": {

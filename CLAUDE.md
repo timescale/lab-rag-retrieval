@@ -1,4 +1,4 @@
-# Autoresearch RAG
+# Lab RAG Retrieval
 
 An autoresearch harness for improving RAG retrieval, evaluated against two
 benchmarks:
